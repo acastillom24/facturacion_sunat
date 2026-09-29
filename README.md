@@ -11,15 +11,22 @@ distintas pestañas del navegador.
 - Emisión de boletas (tipoDoc 03) y facturas (tipoDoc 01).
 - Anulación: boletas vía Resumen Diario de bajas, facturas vía Comunicación de Baja.
 - Historial de comprobantes por empresa, con el detalle de la respuesta de SUNAT.
-- Descarga de PDF y ticket térmico (texto) de cualquier comprobante emitido.
+- Descarga de PDF A4 (vía APIsPERU) y de ticket térmico 80mm en PDF (generado
+  localmente, con QR y hash) de cualquier comprobante emitido. Tras una carga
+  masiva, se pueden descargar todos los tickets emitidos juntos en un `.zip`,
+  cada archivo nombrado `{serie}-{correlativo}.pdf`.
 - Reintento automático: si la emisión falla, se reprograma cada 1 hora
   (hasta 6 intentos) vía un cron job. También hay un botón "Reintentar ahora"
   y uno para "Cancelar reintento" si el comprobante quedó con datos erróneos.
 - Carga masiva desde Excel (`/[empresa]/carga-masiva`): se sube una plantilla
-  `.xlsx` (una fila = un comprobante con un solo ítem) y el sistema asigna el
-  correlativo de cada fila automáticamente y las emite en orden. Máximo 40
-  filas por archivo (límite pensado para el plan Hobby de Vercel, 60s por
-  función); para más volumen, sube varios archivos.
+  `.xlsx` y el sistema asigna el correlativo de cada comprobante
+  automáticamente y los emite en orden. Por defecto cada fila es un
+  comprobante con un solo ítem; si un comprobante necesita varios ítems,
+  se repite el mismo número en la columna **Grupo** en esas filas — el
+  tipo, la serie y el cliente se toman de la primera fila del grupo, y cada
+  fila del grupo aporta un ítem. Máximo 40 filas por archivo (límite pensado
+  para el plan Hobby de Vercel, 60s por función); para más volumen, sube
+  varios archivos.
 
 ### Validaciones de cliente (individuales y en la carga masiva)
 
@@ -54,7 +61,11 @@ scripts/create-company.ts   Alta de empresas (CLI)
 ### 1. Crear el proyecto en Supabase
 
 1. Crea un proyecto gratuito en [supabase.com](https://supabase.com).
-2. Ve a **SQL Editor** y ejecuta el contenido de `supabase/migrations/0001_init.sql`.
+2. Ve a **SQL Editor** y ejecuta, en orden, el contenido de cada archivo en
+   `supabase/migrations/` (`0001_init.sql`, luego `0002_correlativos_rpc.sql`, etc.).
+   Si ya tenías el proyecto corriendo desde antes del 0002, **debes aplicarlo
+   igual**: sin esas funciones, la app no puede asignar correlativos y la
+   emisión de comprobantes falla.
 3. En **Project Settings > API** copia `Project URL` y la `service_role` key (¡no la `anon` key!).
 
 ### 2. Variables de entorno
@@ -90,8 +101,23 @@ npm run create-company -- \
   --nombreComercial="LE CHIC" \
   --direccion="CAL.CELESTINO AVILA GODOY NRO. 672 URB. SAN GERMAN ET. DOS" \
   --provincia=LIMA --departamento=LIMA --distrito="SAN MARTIN DE PORRES" \
-  --token="EL_TOKEN_PERMANENTE_DE_APISPERU"
+  --token="EL_TOKEN_PERMANENTE_DE_APISPERU" \
+  --logoUrl="/logos/le-chic.png"
 ```
+
+`--logoUrl` es opcional: es lo que se muestra arriba del ticket 80mm. APIsPERU
+no expone el logo que subiste allá al crear la empresa (solo lo usa
+internamente para el PDF A4), así que hay que indicarlo aparte. Dos formas:
+
+- **Recomendado, sin costo**: coloca el archivo (png/jpg) en `public/logos/`
+  del proyecto (ej. `public/logos/le-chic.png`) y usa una ruta que empiece con
+  `/` (ej. `--logoUrl="/logos/le-chic.png"`). El ticket lo lee directo del
+  disco de la función serverless — no hay ninguna petición de red ni consulta
+  extra a Supabase por cada ticket generado.
+- **URL externa**: cualquier URL `http(s)://...` pública (tu propio hosting,
+  Supabase Storage, etc.). En este caso sí se hace una petición HTTP por cada
+  ticket generado; para un logo pequeño (unos KB) el costo es marginal, pero
+  si buscas costo cero usa la opción anterior.
 
 Vuelve a ejecutar el mismo comando (con nuevo `--password`) para cambiar la
 contraseña de una empresa existente — usa `upsert` por `slug`.
@@ -137,6 +163,17 @@ Ambas opciones usan el mismo endpoint; no requieren cambios de código.
   y el estado vuelve a `pendiente`; el cron recoge todo lo vencido. Tras 6
   intentos fallidos pasa a `error` (ya no se reintenta solo; puede reintentarse
   manualmente desde el detalle del comprobante).
+- **Consumo en Supabase**: el cliente `service_role` se cachea a nivel de
+  módulo (`src/lib/supabase/admin.ts`) en vez de crearse en cada llamada. Las
+  consultas seleccionan solo las columnas que cada pantalla necesita — el
+  historial (`listarComprobantes`) no trae `payload`/`items`/`sunat_response`,
+  que son los campos JSONB más pesados. El correlativo (boletas/facturas) y el
+  correlativo de resumen/baja se reservan con una función SQL atómica
+  (`supabase/migrations/0002_correlativos_rpc.sql`, funciones
+  `siguiente_correlativo` / `siguiente_correlativo_resumen`) en vez de un
+  SELECT + UPDATE desde la app: es una sola ida a la base de datos en lugar de
+  dos, y de paso evita que dos emisiones simultáneas puedan repetir el mismo
+  número.
 
 ## Próximas mejoras posibles
 

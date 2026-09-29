@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireCompany } from "@/lib/auth/current";
 import { listarComprobantes } from "@/lib/db/comprobantes";
+import { hoyLimaFecha } from "@/lib/sunat/apisperu";
 
 const ESTADO_LABEL: Record<string, string> = {
   pendiente: "Pendiente / reintentando",
@@ -26,12 +27,21 @@ const ESTADO_CLASS: Record<string, string> = {
 
 export default async function DashboardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ empresa: string }>;
+  searchParams: Promise<{ fecha?: string; numero?: string }>;
 }) {
   const { empresa } = await params;
+  const sp = await searchParams;
   const company = await requireCompany(empresa);
-  const comprobantes = await listarComprobantes(company.id);
+
+  // Sin parámetro "fecha" en la URL (primera visita) -> filtra por hoy. Si el
+  // usuario ya filtró (aunque sea con "" para ver todas las fechas), se respeta.
+  const fecha = sp.fecha ?? hoyLimaFecha();
+  const numero = sp.numero ?? "";
+
+  const comprobantes = await listarComprobantes(company.id, { fecha, numero });
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -62,7 +72,42 @@ export default async function DashboardPage({
       </header>
 
       <section className="mt-8">
-        <h2 className="text-sm font-medium text-neutral-500">Historial de comprobantes</h2>
+        <div className="flex items-end justify-between gap-4">
+          <h2 className="text-sm font-medium text-neutral-500">Historial de comprobantes</h2>
+          <form method="get" className="flex items-end gap-3">
+            <div>
+              <label className="block text-xs text-neutral-500">Fecha</label>
+              <input
+                type="date"
+                name="fecha"
+                defaultValue={fecha}
+                className="mt-1 rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-500">N.° de comprobante</label>
+              <input
+                type="text"
+                name="numero"
+                defaultValue={numero}
+                placeholder="ej. 25"
+                className="mt-1 w-32 rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+            >
+              Filtrar
+            </button>
+            <Link
+              href={`/${empresa}?fecha=&numero=`}
+              className="pb-1.5 text-sm text-neutral-500 underline-offset-2 hover:underline"
+            >
+              Ver todas las fechas
+            </Link>
+          </form>
+        </div>
         <div className="mt-3 overflow-hidden rounded-lg border border-neutral-200">
           <table className="w-full text-sm">
             <thead className="bg-neutral-50 text-left text-neutral-500">
@@ -78,7 +123,7 @@ export default async function DashboardPage({
               {comprobantes.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-neutral-400">
-                    Aún no hay comprobantes.
+                    {fecha || numero ? "No hay comprobantes con esos filtros." : "Aún no hay comprobantes."}
                   </td>
                 </tr>
               )}

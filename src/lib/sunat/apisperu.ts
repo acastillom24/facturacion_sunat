@@ -31,6 +31,11 @@ export function nowLimaIso(): string {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}-05:00`;
 }
 
+/** Fecha de hoy en Lima como "YYYY-MM-DD" (para filtros y valores por defecto en la UI). */
+export function hoyLimaFecha(): string {
+  return nowLimaIso().slice(0, 10);
+}
+
 function headers(token: string): HeadersInit {
   return {
     Authorization: `Bearer ${token}`,

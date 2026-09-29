@@ -2,7 +2,7 @@ import {
   marcarEmitido,
   marcarErrorConReintento,
   marcarErrorDefinitivo,
-  type Comprobante,
+  type ComprobanteReintentable,
 } from "@/lib/db/comprobantes";
 import { emitirComprobante } from "./apisperu";
 
@@ -10,9 +10,11 @@ export const MAX_INTENTOS = 6; // 6 reintentos horarios ~ 6h antes de marcar err
 
 /**
  * Intenta emitir un comprobante ya creado (estado pendiente) contra APIsPERU.
- * Usado tanto en la creación inicial como por el cron de reintentos.
+ * Usado tanto en la creación inicial como por el cron de reintentos. Solo
+ * necesita id/payload/intentos, así los llamadores pueden traer de la base
+ * de datos únicamente esas columnas en vez del comprobante completo.
  */
-export async function intentarEmitir(comprobante: Comprobante, token: string): Promise<{
+export async function intentarEmitir(comprobante: ComprobanteReintentable, token: string): Promise<{
   ok: boolean;
   estadoFinal: string;
 }> {

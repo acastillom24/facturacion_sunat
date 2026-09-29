@@ -95,14 +95,14 @@ export default async function ComprobanteDetallePage({
               target="_blank"
               className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100"
             >
-              Descargar PDF
+              Descargar PDF (A4)
             </a>
             <a
               href={`/${empresa}/comprobantes/${comprobante.id}/ticket`}
               target="_blank"
               className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100"
             >
-              Ver ticket
+              Descargar ticket (80mm)
             </a>
           </>
         )}

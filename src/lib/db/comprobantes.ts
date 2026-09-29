@@ -45,6 +45,13 @@ export interface Comprobante {
   updated_at: string;
 }
 
+/** Lo mínimo que necesita `intentarEmitir()` para intentar emitir/reintentar un comprobante. */
+export interface ComprobanteReintentable {
+  id: string;
+  payload: ComprobantePayload;
+  intentos: number;
+}
+
 export async function crearComprobantePendiente(input: {
   companyId: string;
   tipoDoc: TipoDoc;
@@ -55,7 +62,9 @@ export async function crearComprobantePendiente(input: {
   cliente: ClienteSunat;
   items: ItemInput[];
   payload: ComprobantePayload;
-}): Promise<Comprobante> {
+}): Promise<ComprobanteReintentable> {
+  // Solo pedimos "id" de vuelta: el resto de los datos (payload, intentos=0)
+  // ya los tenemos en memoria, no hace falta que Supabase nos los reenvíe.
   const { data, error } = await supabaseAdmin()
     .from("comprobantes")
     .insert({
@@ -74,21 +83,57 @@ export async function crearComprobantePendiente(input: {
       estado: "pendiente",
       fecha_emision: input.payload.fechaEmision,
     })
-    .select("*")
+    .select("id")
     .single();
   if (error) throw error;
-  return data as Comprobante;
+  return { id: data.id as string, payload: input.payload, intentos: 0 };
 }
 
-export async function listarComprobantes(companyId: string, limit = 100): Promise<Comprobante[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("comprobantes")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+export interface FiltrosComprobantes {
+  /** "YYYY-MM-DD" en hora de Lima; vacío/undefined = sin filtro de fecha. */
+  fecha?: string;
+  /** Número de comprobante (correlativo), o "serie-correlativo"; vacío/undefined = sin filtro. */
+  numero?: string;
+}
+
+/** Columnas que realmente pinta la tabla del historial (evita traer payload/items/sunat_response). */
+export interface ComprobanteResumen {
+  id: string;
+  tipo_doc: TipoDoc;
+  serie: string;
+  correlativo: number;
+  cliente: ClienteSunat;
+  moneda: string;
+  mto_imp_venta: number;
+  estado: EstadoComprobante;
+  created_at: string;
+}
+
+const COLUMNAS_RESUMEN = "id, tipo_doc, serie, correlativo, cliente, moneda, mto_imp_venta, estado, created_at";
+
+export async function listarComprobantes(
+  companyId: string,
+  filtros: FiltrosComprobantes = {},
+  limit = 200,
+): Promise<ComprobanteResumen[]> {
+  let query = supabaseAdmin().from("comprobantes").select(COLUMNAS_RESUMEN).eq("company_id", companyId);
+
+  if (filtros.fecha) {
+    const inicio = `${filtros.fecha}T00:00:00-05:00`;
+    const fin = new Date(new Date(inicio).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte("fecha_emision", inicio).lt("fecha_emision", fin);
+  }
+
+  const numero = filtros.numero?.trim();
+  if (numero) {
+    // Acepta "25", "B001-25" o "B001-000025": se compara el correlativo como número.
+    const soloDigitos = numero.match(/(\d+)\s*$/)?.[1];
+    if (soloDigitos) query = query.eq("correlativo", Number(soloDigitos));
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) throw error;
-  return (data ?? []) as Comprobante[];
+  return (data ?? []) as unknown as ComprobanteResumen[];
 }
 
 export async function obtenerComprobante(companyId: string, id: string): Promise<Comprobante | null> {
@@ -199,16 +244,24 @@ export async function marcarErrorAnulacion(id: string, anulacion: Anulacion): Pr
   if (error) throw error;
 }
 
-/** Comprobantes pendientes cuyo próximo intento ya venció (usado por el cron). */
-export async function listarPendientesParaReintento(limit = 25): Promise<Comprobante[]> {
+export interface PendienteReintento extends ComprobanteReintentable {
+  company_id: string;
+}
+
+/**
+ * Comprobantes pendientes cuyo próximo intento ya venció (usado por el cron).
+ * Solo trae las columnas que `intentarEmitir()` usa; se omiten cliente, items,
+ * sunat_response, anulacion, etc., que no hacen falta para reintentar.
+ */
+export async function listarPendientesParaReintento(limit = 25): Promise<PendienteReintento[]> {
   const { data, error } = await supabaseAdmin()
     .from("comprobantes")
-    .select("*")
+    .select("id, company_id, payload, intentos")
     .eq("estado", "pendiente")
     .not("proximo_intento_at", "is", null)
     .lte("proximo_intento_at", new Date().toISOString())
     .order("proximo_intento_at", { ascending: true })
     .limit(limit);
   if (error) throw error;
-  return (data ?? []) as Comprobante[];
+  return (data ?? []) as unknown as PendienteReintento[];
 }

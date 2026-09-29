@@ -16,6 +16,7 @@ export interface Company {
   cod_local: string;
   apisperu_token: string;
   igv_rate: number;
+  logo_url: string | null;
   created_at: string;
 }
 

@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import NodeWebSocket from "ws";
 
 // supabase-js instancia un cliente de Realtime aunque no lo usemos, y ese
@@ -9,18 +9,27 @@ if (typeof globalThis.WebSocket === "undefined") {
   globalThis.WebSocket = NodeWebSocket;
 }
 
+let clienteCacheado: SupabaseClient | null = null;
+
 /**
  * Cliente Supabase con la service_role key. Solo se usa en el servidor
  * (Server Actions, Route Handlers, cron). Nunca importar desde un componente
  * cliente: la key tiene acceso total y se salta RLS.
+ *
+ * Se cachea a nivel de módulo: en una instancia "caliente" de la función
+ * serverless, varias llamadas dentro del mismo o de distintos requests
+ * reutilizan el mismo cliente en vez de reconstruirlo cada vez.
  */
-export function supabaseAdmin() {
+export function supabaseAdmin(): SupabaseClient {
+  if (clienteCacheado) return clienteCacheado;
+
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
     throw new Error("Faltan SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY en el entorno");
   }
-  return createClient(url, key, {
+  clienteCacheado = createClient(url, key, {
     auth: { persistSession: false },
   });
+  return clienteCacheado;
 }

@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
  * su encabezado (no por posición), así que el usuario puede reordenarlas.
  */
 export const COLUMNAS_CARGA = [
+  { header: "Grupo", key: "grupo", width: 10 },
   { header: "Tipo (B/F)", key: "tipo", width: 12 },
   { header: "Serie", key: "serie", width: 10 },
   { header: "Documento Cliente", key: "documento", width: 20 },
@@ -26,12 +27,15 @@ export async function generarPlantillaCargaMasiva(): Promise<Buffer> {
   hoja.columns = COLUMNAS_CARGA.map((c) => ({ header: c.header, key: c.key, width: c.width }));
   hoja.getRow(1).font = { bold: true };
 
+  // Grupo 1: una sola boleta con DOS ítems (dos filas, mismo número de Grupo).
+  // Tipo/Serie/Documento/Nombre solo se leen de la PRIMERA fila del grupo.
   hoja.addRow({
+    grupo: 1,
     tipo: "B",
     serie: "B001",
     documento: "",
     nombre: "",
-    descripcion: "Servicio de ejemplo",
+    descripcion: "Servicio de ejemplo A",
     cantidad: 1,
     precioUnitario: 100,
     codigo: "",
@@ -39,6 +43,14 @@ export async function generarPlantillaCargaMasiva(): Promise<Buffer> {
     formaPago: "Contado",
   });
   hoja.addRow({
+    grupo: 1,
+    descripcion: "Servicio de ejemplo B",
+    cantidad: 2,
+    precioUnitario: 25,
+  });
+  // Grupo 2: una factura con un solo ítem (sin filas adicionales).
+  hoja.addRow({
+    grupo: 2,
     tipo: "F",
     serie: "F001",
     documento: "20613818171",
@@ -69,6 +81,7 @@ function normalizarEncabezado(texto: string): string {
 }
 
 const PALABRAS_CLAVE: Record<ClaveColumnaCarga, string> = {
+  grupo: "grupo",
   tipo: "tipo",
   serie: "serie",
   documento: "documento",

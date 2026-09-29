@@ -19,8 +19,18 @@ export async function GET(req: NextRequest) {
   const pendientes = await listarPendientesParaReintento();
   const resultados: { id: string; estadoFinal: string }[] = [];
 
+  // Cachea la empresa por id dentro de esta corrida: si varios comprobantes
+  // pendientes son de la misma empresa, evita repetir la misma consulta.
+  const empresasCache = new Map<string, Awaited<ReturnType<typeof getCompanyById>>>();
+  async function obtenerEmpresaCacheada(companyId: string) {
+    if (!empresasCache.has(companyId)) {
+      empresasCache.set(companyId, await getCompanyById(companyId));
+    }
+    return empresasCache.get(companyId) ?? null;
+  }
+
   for (const comprobante of pendientes) {
-    const company = await getCompanyById(comprobante.company_id);
+    const company = await obtenerEmpresaCacheada(comprobante.company_id);
     if (!company) continue;
     const { estadoFinal } = await intentarEmitir(comprobante, company.apisperu_token);
     resultados.push({ id: comprobante.id, estadoFinal });

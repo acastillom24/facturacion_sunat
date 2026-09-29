@@ -5,7 +5,8 @@
  *   npm run create-company -- --slug=acme --password=secreta \
  *     --ruc=20613818171 --razonSocial="ACME SAC" --token=EL_TOKEN_PERMANENTE_DE_APISPERU \
  *     [--nombreComercial="Acme"] [--direccion="Av. Siempre Viva 123"] \
- *     [--ubigueo=150101] [--departamento=LIMA] [--provincia=LIMA] [--distrito=LIMA] [--igvRate=0.18]
+ *     [--ubigueo=150101] [--departamento=LIMA] [--provincia=LIMA] [--distrito=LIMA] [--igvRate=0.18] \
+ *     [--logoUrl="https://.../logo.png"]
  *
  * Requiere SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno (.env.local).
  */
@@ -36,20 +37,26 @@ async function main() {
   const db = supabaseAdmin();
   const passwordHash = await bcrypt.hash(args.password, 12);
 
+  // Si la empresa ya existe, los campos opcionales no indicados en esta
+  // corrida conservan su valor anterior (en vez de resetearse), para poder
+  // re-ejecutar el script solo para cambiar la contraseña sin borrar el resto.
+  const { data: existente } = await db.from("companies").select("*").eq("slug", args.slug).maybeSingle();
+
   const row = {
     slug: args.slug,
     password_hash: passwordHash,
     ruc: args.ruc,
     razon_social: args.razonSocial,
-    nombre_comercial: args.nombreComercial ?? args.razonSocial,
-    ubigueo: args.ubigueo ?? "150101",
-    departamento: args.departamento ?? "LIMA",
-    provincia: args.provincia ?? "LIMA",
-    distrito: args.distrito ?? "LIMA",
-    direccion: args.direccion ?? "",
-    cod_local: args.codLocal ?? "0000",
+    nombre_comercial: args.nombreComercial ?? existente?.nombre_comercial ?? args.razonSocial,
+    ubigueo: args.ubigueo ?? existente?.ubigueo ?? "150101",
+    departamento: args.departamento ?? existente?.departamento ?? "LIMA",
+    provincia: args.provincia ?? existente?.provincia ?? "LIMA",
+    distrito: args.distrito ?? existente?.distrito ?? "LIMA",
+    direccion: args.direccion ?? existente?.direccion ?? "",
+    cod_local: args.codLocal ?? existente?.cod_local ?? "0000",
     apisperu_token: args.token,
-    igv_rate: args.igvRate ? Number(args.igvRate) : 0.18,
+    igv_rate: args.igvRate ? Number(args.igvRate) : existente?.igv_rate ?? 0.18,
+    logo_url: args.logoUrl ?? existente?.logo_url ?? null,
   };
 
   const { error } = await db.from("companies").upsert(row, { onConflict: "slug" });
