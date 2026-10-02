@@ -149,7 +149,7 @@ estás seguro, usa una serie nueva (ej. `B002`) desde 1.
 
 #### Sobre el cron de reintentos
 
-`vercel.json` define un cron cada hora (`0 * * * *`) hacia `/api/cron/reintentos`.
+`vercel.json` define un cron diario (`0 12 * * *`, 07:00 hora de Lima) hacia `/api/cron/reintentos`.
 **En el plan Hobby (gratuito) de Vercel, los cron jobs solo pueden ejecutarse
 una vez al día**, no cada hora. Opciones:
 
