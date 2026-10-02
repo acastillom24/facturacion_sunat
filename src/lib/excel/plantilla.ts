@@ -17,6 +17,7 @@ export const COLUMNAS_CARGA = [
   { header: "Codigo", key: "codigo", width: 12 },
   { header: "Moneda (PEN/USD)", key: "moneda", width: 16 },
   { header: "Forma de Pago (Contado/Credito)", key: "formaPago", width: 24 },
+  { header: "Prefijo Archivo", key: "prefijo", width: 18 },
 ] as const;
 
 export type ClaveColumnaCarga = (typeof COLUMNAS_CARGA)[number]["key"];
@@ -41,6 +42,7 @@ export async function generarPlantillaCargaMasiva(): Promise<Buffer> {
     codigo: "",
     moneda: "PEN",
     formaPago: "Contado",
+    prefijo: "Maria Perez",
   });
   hoja.addRow({
     grupo: 1,
@@ -92,6 +94,7 @@ const PALABRAS_CLAVE: Record<ClaveColumnaCarga, string> = {
   codigo: "codigo",
   moneda: "moneda",
   formaPago: "pago",
+  prefijo: "prefijo",
 };
 
 export async function leerFilasCargaMasiva(buffer: ArrayBuffer): Promise<FilaCargaCruda[]> {

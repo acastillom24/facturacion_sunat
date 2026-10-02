@@ -29,6 +29,8 @@ export interface ResultadoFilaCarga {
   estado: "emitido" | "pendiente" | "error" | "invalido";
   mensaje?: string;
   id?: string;
+  /** Prefijo para el nombre del archivo (columna "Prefijo Archivo"); vacío = solo "{serie}-{correlativo}". */
+  prefijo?: string;
 }
 
 interface GrupoCarga {
@@ -150,6 +152,7 @@ async function procesarGrupo(company: Company, grupo: GrupoCarga): Promise<Resul
     total: payload.mtoImpVenta,
     estado: estadoFinal as ResultadoFilaCarga["estado"],
     id: comprobante.id,
+    prefijo: (cabecera.prefijo ?? "").trim(),
   };
 }
 

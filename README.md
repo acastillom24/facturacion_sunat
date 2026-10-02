@@ -126,6 +126,21 @@ Luego entra a `http://localhost:3000/le-chic/login`.
 
 Para agregar más empresas, repite el comando con otro `--slug`.
 
+#### Continuar la numeración de un sistema anterior
+
+Si la empresa ya emitía en otro sistema, fija el **último** número usado de cada
+serie; el siguiente comprobante será ese número + 1 (sin saltos, ya que el
+correlativo debe ser secuencial):
+
+```bash
+npm run set-correlativo -- --slug=le-chic --tipo=03 --serie=B001 --ultimo=5838  # siguiente: B001-5839
+npm run set-correlativo -- --slug=le-chic --tipo=01 --serie=F001 --ultimo=57    # siguiente: F001-58
+```
+
+`--tipo` es `03` (boleta) o `01` (factura). Verifica antes que ese sea de verdad
+el último número emitido y que el sistema anterior ya no use la serie; si no
+estás seguro, usa una serie nueva (ej. `B002`) desde 1.
+
 ### 5. Desplegar en Vercel
 
 1. Sube el repo a GitHub y en Vercel elige "Import Project".

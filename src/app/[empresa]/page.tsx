@@ -63,6 +63,12 @@ export default async function DashboardPage({
           >
             Carga masiva
           </Link>
+          <Link
+            href={`/${empresa}/anulacion-masiva`}
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+          >
+            Anulación masiva
+          </Link>
           <form action={`/${empresa}/logout`} method="post">
             <button className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100">
               Salir

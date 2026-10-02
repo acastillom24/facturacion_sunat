@@ -147,6 +147,22 @@ export async function obtenerComprobante(companyId: string, id: string): Promise
   return data as Comprobante | null;
 }
 
+export async function buscarComprobantePorNumero(
+  companyId: string,
+  serie: string,
+  correlativo: number,
+): Promise<Comprobante | null> {
+  const { data, error } = await supabaseAdmin()
+    .from("comprobantes")
+    .select("*")
+    .eq("company_id", companyId)
+    .eq("serie", serie)
+    .eq("correlativo", correlativo)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Comprobante | null;
+}
+
 export async function marcarEmitido(id: string, sunatResponse: SunatCdrResponse, hash?: string): Promise<void> {
   const { error } = await supabaseAdmin()
     .from("comprobantes")

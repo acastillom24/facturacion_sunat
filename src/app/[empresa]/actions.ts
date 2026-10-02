@@ -7,15 +7,14 @@ import { crearTokenSesion, sessionCookieName, SESSION_MAX_AGE } from "@/lib/auth
 import { companyToEmpresaSunat, getCompanyBySlug } from "@/lib/db/companies";
 import {
   crearComprobantePendiente,
-  marcarAnulado,
-  marcarAnulando,
+  buscarComprobantePorNumero,
   marcarCancelado,
-  marcarErrorAnulacion,
   obtenerComprobante,
 } from "@/lib/db/comprobantes";
-import { siguienteCorrelativo, siguienteCorrelativoResumen } from "@/lib/db/correlativos";
+import { siguienteCorrelativo } from "@/lib/db/correlativos";
 import { leerFilasCargaMasiva } from "@/lib/excel/plantilla";
-import { anularBoleta, anularFactura, construirPayload, nowLimaIso } from "@/lib/sunat/apisperu";
+import { anularComprobante } from "@/lib/sunat/anulacion";
+import { construirPayload } from "@/lib/sunat/apisperu";
 import { MAX_FILAS_CARGA_MASIVA, procesarCargaMasiva, type ResultadoFilaCarga } from "@/lib/sunat/cargaMasiva";
 import { intentarEmitir } from "@/lib/sunat/emision";
 import type { ClienteSunat, ItemInput, TipoDoc } from "@/lib/sunat/types";
@@ -139,108 +138,8 @@ export async function anularAction(
   if (!company) return { error: "Empresa no encontrada" };
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante) return { error: "Comprobante no encontrado" };
-  if (comprobante.estado !== "emitido") return { error: "Solo se pueden anular comprobantes emitidos" };
-
-  const empresa = companyToEmpresaSunat(company);
-  const fecResumen = nowLimaIso();
-
-  if (comprobante.tipo_doc === "03") {
-    const correlativoResumen = await siguienteCorrelativoResumen(company.id, fecResumen.slice(0, 10));
-    await marcarAnulando(comprobante.id, {
-      correlativoResumen: String(correlativoResumen),
-      estado: "enviado",
-      fecResumen,
-    });
-    try {
-      const resultado = await anularBoleta({
-        token: company.apisperu_token,
-        empresa,
-        serie: comprobante.serie,
-        correlativo: comprobante.correlativo,
-        correlativoResumen,
-        total: comprobante.mto_imp_venta,
-        clienteTipo: comprobante.cliente.tipoDoc,
-        clienteNumero: comprobante.cliente.numDoc,
-        fechaEmisionBoleta: comprobante.fecha_emision,
-        fechaResumen: fecResumen,
-        igvRate: Number(company.igv_rate),
-      });
-      if (resultado.ticket) {
-        await marcarAnulado(comprobante.id, {
-          correlativoResumen: String(correlativoResumen),
-          ticket: resultado.ticket,
-          estado: "aceptado",
-          resultado,
-          fecResumen,
-        });
-      } else {
-        await marcarErrorAnulacion(comprobante.id, {
-          correlativoResumen: String(correlativoResumen),
-          estado: "rechazado",
-          resultado,
-          fecResumen,
-        });
-        return { error: "SUNAT rechazó la anulación, revisa el detalle" };
-      }
-    } catch (err) {
-      await marcarErrorAnulacion(comprobante.id, {
-        correlativoResumen: String(correlativoResumen),
-        estado: "rechazado",
-        resultado: { error: { message: err instanceof Error ? err.message : String(err) } },
-        fecResumen,
-      });
-      return { error: "Error de red al anular, intenta de nuevo" };
-    }
-  } else {
-    const motivo = String(formData.get("motivo") ?? "").trim() || "ANULACION SOLICITADA POR EL EMISOR";
-    const correlativoBaja = await siguienteCorrelativoResumen(company.id, fecResumen.slice(0, 10));
-    await marcarAnulando(comprobante.id, {
-      correlativoResumen: String(correlativoBaja),
-      motivo,
-      estado: "enviado",
-      fecResumen,
-    });
-    try {
-      const resultado = await anularFactura({
-        token: company.apisperu_token,
-        empresa,
-        serie: comprobante.serie,
-        correlativo: comprobante.correlativo,
-        correlativoBaja,
-        motivo,
-        fechaEmisionFactura: comprobante.fecha_emision,
-        fechaComunicacion: fecResumen,
-      });
-      if (resultado.ticket) {
-        await marcarAnulado(comprobante.id, {
-          correlativoResumen: String(correlativoBaja),
-          motivo,
-          ticket: resultado.ticket,
-          estado: "aceptado",
-          resultado,
-          fecResumen,
-        });
-      } else {
-        await marcarErrorAnulacion(comprobante.id, {
-          correlativoResumen: String(correlativoBaja),
-          motivo,
-          estado: "rechazado",
-          resultado,
-          fecResumen,
-        });
-        return { error: "SUNAT rechazó la comunicación de baja, revisa el detalle" };
-      }
-    } catch (err) {
-      await marcarErrorAnulacion(comprobante.id, {
-        correlativoResumen: String(correlativoBaja),
-        motivo,
-        estado: "rechazado",
-        resultado: { error: { message: err instanceof Error ? err.message : String(err) } },
-        fecResumen,
-      });
-      return { error: "Error de red al anular, intenta de nuevo" };
-    }
-  }
+  const resultado = await anularComprobante(company, comprobante, String(formData.get("motivo") ?? ""));
+  if (resultado.error) return resultado;
 
   redirect(`/${slug}/comprobantes/${id}`);
 }
@@ -271,5 +170,57 @@ export async function cargaMasivaAction(
   }
 
   const resultados = await procesarCargaMasiva(company, filas);
+  return { resultados };
+}
+
+export interface ResultadoAnulacionMasiva {
+  codigo: string;
+  estado: "anulado" | "error";
+  mensaje?: string;
+}
+
+const MAX_CODIGOS_ANULACION_MASIVA = 40;
+
+/** Anula varios comprobantes a partir de sus códigos "SERIE-NUMERO" (ej. B001-5744, F001-57). */
+export async function anulacionMasivaAction(
+  slug: string,
+  formData: FormData,
+): Promise<{ error?: string; resultados?: ResultadoAnulacionMasiva[] }> {
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { error: "Empresa no encontrada" };
+
+  const codigos = [
+    ...new Set(
+      String(formData.get("codigos") ?? "")
+        .split(/[\s,;]+/)
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ];
+  if (codigos.length === 0) return { error: "Ingresa al menos un código (ej. B001-5744)" };
+  if (codigos.length > MAX_CODIGOS_ANULACION_MASIVA) {
+    return { error: `Máximo ${MAX_CODIGOS_ANULACION_MASIVA} códigos por vez; ingresaste ${codigos.length}.` };
+  }
+  const motivo = String(formData.get("motivo") ?? "");
+
+  const resultados: ResultadoAnulacionMasiva[] = [];
+  for (const codigo of codigos) {
+    const m = codigo.match(/^([BF]\d{3})-0*(\d+)$/);
+    if (!m) {
+      resultados.push({ codigo, estado: "error", mensaje: "Formato inválido (usa SERIE-NUMERO, ej. B001-5744)" });
+      continue;
+    }
+    const comprobante = await buscarComprobantePorNumero(company.id, m[1], Number(m[2]));
+    if (!comprobante) {
+      resultados.push({ codigo, estado: "error", mensaje: "No existe en el sistema" });
+      continue;
+    }
+    if (comprobante.estado !== "emitido") {
+      resultados.push({ codigo, estado: "error", mensaje: `Estado "${comprobante.estado}": solo se anulan comprobantes emitidos` });
+      continue;
+    }
+    const r = await anularComprobante(company, comprobante, motivo);
+    resultados.push(r.error ? { codigo, estado: "error", mensaje: r.error } : { codigo, estado: "anulado" });
+  }
   return { resultados };
 }

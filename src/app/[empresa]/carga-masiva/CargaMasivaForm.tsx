@@ -30,7 +30,8 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
     {},
   );
 
-  const idsEmitidos = state?.resultados?.filter((r) => r.estado === "emitido" && r.id).map((r) => r.id as string) ?? [];
+  const emitidos = state?.resultados?.filter((r) => r.estado === "emitido" && r.id) ?? [];
+  const idsEmitidos = emitidos.map((r) => r.id as string);
 
   async function descargarTicketsZip() {
     setErrorZip(null);
@@ -39,7 +40,7 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
       const res = await fetch(`/${slug}/carga-masiva/tickets-zip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: idsEmitidos }),
+        body: JSON.stringify({ archivos: emitidos.map((r) => ({ id: r.id, prefijo: r.prefijo ?? "" })) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -71,6 +72,7 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li><strong>Tipo</strong>: &quot;B&quot; para boleta o &quot;F&quot; para factura.</li>
           <li><strong>Documento Cliente</strong>: obligatorio (RUC, 11 dígitos) si es factura; obligatorio (DNI, 8 dígitos) en boletas con monto mayor a S/ 699.</li>
+          <li><strong>Prefijo Archivo</strong> (opcional): nombre para el PDF, que quedará como <code>Prefijo_B001-5744.pdf</code>; en blanco queda solo <code>B001-5744.pdf</code>.</li>
           <li>El correlativo de cada comprobante lo asigna el sistema automáticamente.</li>
           <li>Máximo 40 filas por archivo (para archivos más grandes, divide en varias cargas).</li>
         </ul>
