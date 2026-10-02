@@ -10,8 +10,8 @@ export default async function LoginPage({
   const company = await getCompanyBySlug(empresa);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-neutral-200 bg-white p-8 shadow-sm">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-indigo-50 to-slate-50 px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-t-4 border-neutral-200 border-t-indigo-600 bg-white p-8 shadow-lg">
         <h1 className="text-xl font-semibold text-neutral-900">
           {company ? company.razon_social : empresa}
         </h1>

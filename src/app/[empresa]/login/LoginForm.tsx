@@ -30,7 +30,7 @@ export function LoginForm({ slug }: { slug: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60"
+        className="w-full rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
       >
         {pending ? "Ingresando..." : "Ingresar"}
       </button>

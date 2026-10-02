@@ -62,7 +62,7 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-neutral-600">
         <p>
           Descarga la plantilla, complétala y súbela aquí. Por defecto cada fila es un
           comprobante con un solo ítem; si necesitas varios ítems en un mismo comprobante,
@@ -96,7 +96,7 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60"
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
         >
           {pending ? "Procesando..." : "Procesar archivo"}
         </button>
@@ -110,14 +110,14 @@ export function CargaMasivaForm({ slug }: { slug: string }) {
                 type="button"
                 onClick={descargarTicketsZip}
                 disabled={descargandoZip}
-                className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-100 disabled:opacity-60"
+                className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-neutral-100 disabled:opacity-60"
               >
                 {descargandoZip ? "Generando .zip..." : `Descargar tickets emitidos (.zip, ${idsEmitidos.length})`}
               </button>
               {errorZip && <p className="text-sm text-red-600">{errorZip}</p>}
             </div>
           )}
-          <div className="overflow-hidden rounded-lg border border-neutral-200">
+          <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
             <table className="w-full text-sm">
               <thead className="bg-neutral-50 text-left text-neutral-500">
                 <tr>

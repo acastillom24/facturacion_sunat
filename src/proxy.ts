@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sessionCookieName, verificarTokenSesion } from "@/lib/auth/session";
 
 const PUBLIC_SUBPATHS = new Set(["login"]);
-const RESERVED_SLUGS = new Set(["api", "_next", "favicon.ico"]);
+const RESERVED_SLUGS = new Set(["api", "_next", "favicon.ico", "logos"]);
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

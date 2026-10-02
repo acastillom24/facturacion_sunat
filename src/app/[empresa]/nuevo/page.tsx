@@ -12,7 +12,7 @@ export default async function NuevoComprobantePage({
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link href={`/${empresa}`} className="text-sm text-neutral-500 hover:underline">
+      <Link href={`/${empresa}`} className="text-sm text-indigo-600 hover:underline">
         ← Volver
       </Link>
       <h1 className="mt-2 text-lg font-semibold text-neutral-900">Nuevo comprobante</h1>

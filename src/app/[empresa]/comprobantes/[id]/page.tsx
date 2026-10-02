@@ -23,7 +23,7 @@ export default async function ComprobanteDetallePage({
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link href={`/${empresa}`} className="text-sm text-neutral-500 hover:underline">
+      <Link href={`/${empresa}`} className="text-sm text-indigo-600 hover:underline">
         ← Volver al historial
       </Link>
 

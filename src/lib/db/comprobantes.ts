@@ -90,8 +90,9 @@ export async function crearComprobantePendiente(input: {
 }
 
 export interface FiltrosComprobantes {
-  /** "YYYY-MM-DD" en hora de Lima; vacío/undefined = sin filtro de fecha. */
-  fecha?: string;
+  /** Rango "YYYY-MM-DD" (inclusive) en hora de Lima; vacío/undefined = sin límite por ese lado. */
+  desde?: string;
+  hasta?: string;
   /** Número de comprobante (correlativo), o "serie-correlativo"; vacío/undefined = sin filtro. */
   numero?: string;
 }
@@ -118,10 +119,10 @@ export async function listarComprobantes(
 ): Promise<ComprobanteResumen[]> {
   let query = supabaseAdmin().from("comprobantes").select(COLUMNAS_RESUMEN).eq("company_id", companyId);
 
-  if (filtros.fecha) {
-    const inicio = `${filtros.fecha}T00:00:00-05:00`;
-    const fin = new Date(new Date(inicio).getTime() + 24 * 60 * 60 * 1000).toISOString();
-    query = query.gte("fecha_emision", inicio).lt("fecha_emision", fin);
+  if (filtros.desde) query = query.gte("fecha_emision", `${filtros.desde}T00:00:00-05:00`);
+  if (filtros.hasta) {
+    const finDia = new Date(new Date(`${filtros.hasta}T00:00:00-05:00`).getTime() + 24 * 60 * 60 * 1000);
+    query = query.lt("fecha_emision", finDia.toISOString());
   }
 
   const numero = filtros.numero?.trim();

@@ -12,7 +12,7 @@ export function AnulacionMasivaForm({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-neutral-600">
         <p>
           Escribe los códigos de las boletas y facturas a anular, separados por salto de línea,
           coma o espacio (ej. <code>B001-5744</code>, <code>F001-57</code>). Las boletas se anulan
@@ -46,7 +46,7 @@ export function AnulacionMasivaForm({ slug }: { slug: string }) {
       </form>
 
       {state?.resultados && (
-        <div className="overflow-hidden rounded-lg border border-neutral-200">
+        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-neutral-50 text-left text-neutral-500">
               <tr>

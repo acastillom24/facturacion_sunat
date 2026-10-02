@@ -105,7 +105,7 @@ export function NuevoComprobanteForm({ slug }: { slug: string }) {
         </div>
       </div>
 
-      <fieldset className="rounded-md border border-neutral-200 p-4">
+      <fieldset className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
         <legend className="px-1 text-sm font-medium text-neutral-700">Cliente</legend>
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -144,7 +144,7 @@ export function NuevoComprobanteForm({ slug }: { slug: string }) {
         )}
       </fieldset>
 
-      <fieldset className="rounded-md border border-neutral-200 p-4">
+      <fieldset className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
         <legend className="px-1 text-sm font-medium text-neutral-700">Ítems (precio con IGV incluido)</legend>
         <div className="space-y-2">
           {items.map((it, i) => (
@@ -204,7 +204,7 @@ export function NuevoComprobanteForm({ slug }: { slug: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60"
+        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
       >
         {pending ? "Emitiendo..." : "Emitir"}
       </button>
