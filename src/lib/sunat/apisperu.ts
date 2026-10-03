@@ -90,16 +90,19 @@ export function construirPayload(params: EmitirParams): ComprobantePayload {
   const details: DetalleSunat[] = [];
   let mtoOperGravadas = 0;
   let mtoIgvTotal = 0;
+  let mtoImpVentaAcum = 0;
 
   for (const it of items) {
     const cant = Number(it.cantidad);
     const precioConIgv = Number(it.precioUnitario);
     const valorUnitario = precioConIgv / (1 + igvRate);
-    const valorVentaItem = round2(valorUnitario * cant);
-    const igvItem = round2(valorVentaItem * igvRate);
+    const totalItem = round2(precioConIgv * cant);
+    const valorVentaItem = round2(totalItem / (1 + igvRate));
+    const igvItem = round2(totalItem - valorVentaItem);
 
     mtoOperGravadas += valorVentaItem;
     mtoIgvTotal += igvItem;
+    mtoImpVentaAcum += totalItem;
 
     details.push({
       codProducto: it.codigo ?? "",
@@ -121,7 +124,7 @@ export function construirPayload(params: EmitirParams): ComprobantePayload {
   mtoIgvTotal = round2(mtoIgvTotal);
   const valorVenta = mtoOperGravadas;
   const totalImpuestos = mtoIgvTotal;
-  const subTotal = round2(valorVenta + totalImpuestos);
+  const subTotal = round2(mtoImpVentaAcum);
   const mtoImpVenta = subTotal;
 
   return {
