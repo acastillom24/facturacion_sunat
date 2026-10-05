@@ -40,7 +40,7 @@ export default async function ComprobanteDetallePage({
           <dt className="text-neutral-500">Documento</dt>
           <dd>{comprobante.cliente.numDoc}</dd>
           <dt className="text-neutral-500">Fecha emisión</dt>
-          <dd>{new Date(comprobante.fecha_emision).toLocaleString("es-PE")}</dd>
+          <dd>{new Date(comprobante.fecha_emision).toLocaleString("es-PE", { timeZone: "America/Lima" })}</dd>
           <dt className="text-neutral-500">Total</dt>
           <dd>{moneda} {comprobante.mto_imp_venta.toFixed(2)}</dd>
           <dt className="text-neutral-500">Intentos de emisión</dt>
@@ -48,7 +48,7 @@ export default async function ComprobanteDetallePage({
           {comprobante.proximo_intento_at && (
             <>
               <dt className="text-neutral-500">Próximo reintento</dt>
-              <dd>{new Date(comprobante.proximo_intento_at).toLocaleString("es-PE")}</dd>
+              <dd>{new Date(comprobante.proximo_intento_at).toLocaleString("es-PE", { timeZone: "America/Lima" })}</dd>
             </>
           )}
         </dl>

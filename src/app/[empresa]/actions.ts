@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { verifyPassword } from "@/lib/auth/password";
 import { crearTokenSesion, sessionCookieName, SESSION_MAX_AGE } from "@/lib/auth/session";
@@ -222,5 +223,38 @@ export async function anulacionMasivaAction(
     const r = await anularComprobante(company, comprobante, motivo);
     resultados.push(r.error ? { codigo, estado: "error", mensaje: r.error } : { codigo, estado: "anulado" });
   }
+  return { resultados };
+}
+
+/** Anula los comprobantes seleccionados en el historial (por id). Solo se anulan los emitidos. */
+export async function anularSeleccionadosAction(
+  slug: string,
+  ids: string[],
+  motivo = "",
+): Promise<{ error?: string; resultados?: ResultadoAnulacionMasiva[] }> {
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { error: "Empresa no encontrada" };
+  const unicos = [...new Set(ids)];
+  if (unicos.length === 0) return { error: "No seleccionaste comprobantes" };
+  if (unicos.length > MAX_CODIGOS_ANULACION_MASIVA) {
+    return { error: `Máximo ${MAX_CODIGOS_ANULACION_MASIVA} comprobantes por vez; seleccionaste ${unicos.length}.` };
+  }
+
+  const resultados: ResultadoAnulacionMasiva[] = [];
+  for (const id of unicos) {
+    const comprobante = await obtenerComprobante(company.id, id);
+    if (!comprobante) {
+      resultados.push({ codigo: id, estado: "error", mensaje: "No existe en el sistema" });
+      continue;
+    }
+    const codigo = `${comprobante.serie}-${comprobante.correlativo}`;
+    if (comprobante.estado !== "emitido") {
+      resultados.push({ codigo, estado: "error", mensaje: `Estado "${comprobante.estado}": solo se anulan comprobantes emitidos` });
+      continue;
+    }
+    const r = await anularComprobante(company, comprobante, motivo);
+    resultados.push(r.error ? { codigo, estado: "error", mensaje: r.error } : { codigo, estado: "anulado" });
+  }
+  revalidatePath(`/${slug}`);
   return { resultados };
 }

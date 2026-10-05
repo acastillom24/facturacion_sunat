@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireCompany } from "@/lib/auth/current";
 import { listarComprobantes } from "@/lib/db/comprobantes";
 import { FiltroFechas } from "./FiltroFechas";
+import { TablaComprobantes } from "./TablaComprobantes";
 import { hoyLimaFecha } from "@/lib/sunat/apisperu";
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -89,49 +90,19 @@ export default async function DashboardPage({
         <div className="mt-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
           <FiltroFechas slug={empresa} desde={desde} hasta={hasta} numero={numero} />
         </div>
-        <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
-              <tr>
-                <th className="px-4 py-2">Documento</th>
-                <th className="px-4 py-2">Cliente</th>
-                <th className="px-4 py-2">Total</th>
-                <th className="px-4 py-2">Estado</th>
-                <th className="px-4 py-2">Fecha</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {comprobantes.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-neutral-400">
-                    {desde || hasta || numero ? "No hay comprobantes con esos filtros." : "Aún no hay comprobantes."}
-                  </td>
-                </tr>
-              )}
-              {comprobantes.map((c) => (
-                <tr key={c.id} className="hover:bg-indigo-50/60">
-                  <td className="px-4 py-2">
-                    <Link href={`/${empresa}/comprobantes/${c.id}`} className="font-medium text-indigo-700 underline-offset-2 hover:underline">
-                      {c.tipo_doc === "01" ? "Factura" : "Boleta"} {c.serie}-{String(c.correlativo).padStart(6, "0")}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2 text-neutral-600">{c.cliente.rznSocial}</td>
-                  <td className="px-4 py-2 text-neutral-600">
-                    {c.moneda === "PEN" ? "S/" : "$"} {c.mto_imp_venta.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[c.estado] ?? ""}`}>
-                      {ESTADO_LABEL[c.estado] ?? c.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-neutral-500">
-                    {new Date(c.created_at).toLocaleString("es-PE")}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TablaComprobantes
+          slug={empresa}
+          vacio={desde || hasta || numero ? "No hay comprobantes con esos filtros." : "Aún no hay comprobantes."}
+          filas={comprobantes.map((c) => ({
+            id: c.id,
+            documento: `${c.tipo_doc === "01" ? "Factura" : "Boleta"} ${c.serie}-${String(c.correlativo).padStart(6, "0")}`,
+            cliente: c.cliente.rznSocial,
+            total: `${c.moneda === "PEN" ? "S/" : "$"} ${c.mto_imp_venta.toFixed(2)}`,
+            estadoLabel: ESTADO_LABEL[c.estado] ?? c.estado,
+            estadoClass: ESTADO_CLASS[c.estado] ?? "",
+            fecha: new Date(c.created_at).toLocaleString("es-PE", { timeZone: "America/Lima" }),
+          }))}
+        />
       </section>
     </main>
   );
