@@ -1,7 +1,6 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { verifyPassword } from "@/lib/auth/password";
 import { crearTokenSesion, sessionCookieName, SESSION_MAX_AGE } from "@/lib/auth/session";
@@ -13,10 +12,11 @@ import {
   obtenerComprobante,
 } from "@/lib/db/comprobantes";
 import { siguienteCorrelativo } from "@/lib/db/correlativos";
+import { mensajeExcedeLimite } from "@/lib/limites";
 import { leerFilasCargaMasiva } from "@/lib/excel/plantilla";
 import { anularComprobante } from "@/lib/sunat/anulacion";
 import { construirPayload } from "@/lib/sunat/apisperu";
-import { MAX_FILAS_CARGA_MASIVA, procesarCargaMasiva, type ResultadoFilaCarga } from "@/lib/sunat/cargaMasiva";
+import { agruparFilas, MAX_FILAS_CARGA_MASIVA, procesarGrupo, type GrupoCarga, type ResultadoFilaCarga } from "@/lib/sunat/cargaMasiva";
 import { intentarEmitir } from "@/lib/sunat/emision";
 import type { ClienteSunat, ItemInput, TipoDoc } from "@/lib/sunat/types";
 import { validarCliente } from "@/lib/sunat/validacion";
@@ -145,10 +145,11 @@ export async function anularAction(
   redirect(`/${slug}/comprobantes/${id}`);
 }
 
-export async function cargaMasivaAction(
+/** Lee el Excel y devuelve los comprobantes (grupos de filas) a emitir; la emisión se hace de a uno con `emitirGrupoAction`. */
+export async function prepararCargaAction(
   slug: string,
   formData: FormData,
-): Promise<{ error?: string; resultados?: ResultadoFilaCarga[] }> {
+): Promise<{ error?: string; grupos?: GrupoCarga[] }> {
   const company = await getCompanyBySlug(slug);
   if (!company) return { error: "Empresa no encontrada" };
 
@@ -157,104 +158,91 @@ export async function cargaMasivaAction(
     return { error: "Selecciona un archivo Excel (.xlsx)" };
   }
 
-  const buffer = await archivo.arrayBuffer();
   let filas;
   try {
-    filas = await leerFilasCargaMasiva(buffer);
+    filas = await leerFilasCargaMasiva(await archivo.arrayBuffer());
   } catch {
     return { error: "No se pudo leer el archivo. Verifica que sea un .xlsx válido generado a partir de la plantilla." };
   }
-
   if (filas.length === 0) return { error: "El archivo no tiene filas de datos" };
-  if (filas.length > MAX_FILAS_CARGA_MASIVA) {
-    return { error: `El archivo tiene ${filas.length} filas; el máximo por carga es ${MAX_FILAS_CARGA_MASIVA}. Divídelo en partes más pequeñas.` };
-  }
 
-  const resultados = await procesarCargaMasiva(company, filas);
-  return { resultados };
+  // El límite es de comprobantes, no de filas: varias filas con el mismo "Grupo" son un solo comprobante.
+  const grupos = agruparFilas(filas);
+  if (grupos.length > MAX_FILAS_CARGA_MASIVA) {
+    return {
+      error: mensajeExcedeLimite(
+        grupos.length,
+        MAX_FILAS_CARGA_MASIVA,
+        `el archivo genera ${grupos.length} comprobantes (${filas.length} filas)`,
+      ),
+    };
+  }
+  return { grupos };
+}
+
+/** Crea y emite UN comprobante de la carga masiva. */
+export async function emitirGrupoAction(slug: string, grupo: GrupoCarga): Promise<ResultadoFilaCarga> {
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { filas: grupo.filasNumeros, estado: "error", mensaje: "Empresa no encontrada" };
+  return procesarGrupo(company, grupo);
+}
+
+/** Reintenta la emisión de un comprobante ya creado (reusa su correlativo). */
+export async function reintentarEmisionAction(
+  slug: string,
+  id: string,
+): Promise<{ estado: "emitido" | "pendiente" | "error"; mensaje?: string }> {
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { estado: "error", mensaje: "Empresa no encontrada" };
+  const comprobante = await obtenerComprobante(company.id, id);
+  if (!comprobante) return { estado: "error", mensaje: "Comprobante no encontrado" };
+  if (comprobante.estado === "emitido") return { estado: "emitido" };
+  if (comprobante.estado !== "pendiente" && comprobante.estado !== "error") {
+    return { estado: "error", mensaje: `Estado "${comprobante.estado}": no se puede reintentar` };
+  }
+  const { estadoFinal } = await intentarEmitir(comprobante, company.apisperu_token);
+  return { estado: estadoFinal as "emitido" | "pendiente" | "error" };
 }
 
 export interface ResultadoAnulacionMasiva {
   codigo: string;
   estado: "anulado" | "error";
   mensaje?: string;
+  /** true si falló la llamada a SUNAT/API (el comprobante quedó en error_anulacion y vale la pena reintentar). */
+  reintentable?: boolean;
 }
 
-const MAX_CODIGOS_ANULACION_MASIVA = 40;
-
-/** Anula varios comprobantes a partir de sus códigos "SERIE-NUMERO" (ej. B001-5744, F001-57). */
-export async function anulacionMasivaAction(
+/**
+ * Anula UN comprobante, indicado por `id` (selector del historial) o por `codigo` "SERIE-NUMERO"
+ * (ej. B001-5744, F001-57). Acepta emitidos y los que quedaron en "error_anulacion".
+ */
+export async function anularUnoAction(
   slug: string,
-  formData: FormData,
-): Promise<{ error?: string; resultados?: ResultadoAnulacionMasiva[] }> {
+  ref: { id?: string; codigo?: string },
+  motivo: string,
+): Promise<ResultadoAnulacionMasiva> {
+  const etiqueta = ref.codigo ?? ref.id ?? "";
   const company = await getCompanyBySlug(slug);
-  if (!company) return { error: "Empresa no encontrada" };
+  if (!company) return { codigo: etiqueta, estado: "error", mensaje: "Empresa no encontrada" };
 
-  const codigos = [
-    ...new Set(
-      String(formData.get("codigos") ?? "")
-        .split(/[\s,;]+/)
-        .map((c) => c.trim().toUpperCase())
-        .filter(Boolean),
-    ),
-  ];
-  if (codigos.length === 0) return { error: "Ingresa al menos un código (ej. B001-5744)" };
-  if (codigos.length > MAX_CODIGOS_ANULACION_MASIVA) {
-    return { error: `Máximo ${MAX_CODIGOS_ANULACION_MASIVA} códigos por vez; ingresaste ${codigos.length}.` };
-  }
-  const motivo = String(formData.get("motivo") ?? "");
-
-  const resultados: ResultadoAnulacionMasiva[] = [];
-  for (const codigo of codigos) {
-    const m = codigo.match(/^([BF]\d{3})-0*(\d+)$/);
+  let comprobante = null;
+  if (ref.id) {
+    comprobante = await obtenerComprobante(company.id, ref.id);
+  } else if (ref.codigo) {
+    const m = ref.codigo.match(/^([BF]\d{3})-0*(\d+)$/);
     if (!m) {
-      resultados.push({ codigo, estado: "error", mensaje: "Formato inválido (usa SERIE-NUMERO, ej. B001-5744)" });
-      continue;
+      return { codigo: etiqueta, estado: "error", mensaje: "Formato inválido (usa SERIE-NUMERO, ej. B001-5744)" };
     }
-    const comprobante = await buscarComprobantePorNumero(company.id, m[1], Number(m[2]));
-    if (!comprobante) {
-      resultados.push({ codigo, estado: "error", mensaje: "No existe en el sistema" });
-      continue;
-    }
-    if (comprobante.estado !== "emitido") {
-      resultados.push({ codigo, estado: "error", mensaje: `Estado "${comprobante.estado}": solo se anulan comprobantes emitidos` });
-      continue;
-    }
-    const r = await anularComprobante(company, comprobante, motivo);
-    resultados.push(r.error ? { codigo, estado: "error", mensaje: r.error } : { codigo, estado: "anulado" });
+    comprobante = await buscarComprobantePorNumero(company.id, m[1], Number(m[2]));
   }
-  return { resultados };
-}
+  if (!comprobante) return { codigo: etiqueta, estado: "error", mensaje: "No existe en el sistema" };
 
-/** Anula los comprobantes seleccionados en el historial (por id). Solo se anulan los emitidos. */
-export async function anularSeleccionadosAction(
-  slug: string,
-  ids: string[],
-  motivo = "",
-): Promise<{ error?: string; resultados?: ResultadoAnulacionMasiva[] }> {
-  const company = await getCompanyBySlug(slug);
-  if (!company) return { error: "Empresa no encontrada" };
-  const unicos = [...new Set(ids)];
-  if (unicos.length === 0) return { error: "No seleccionaste comprobantes" };
-  if (unicos.length > MAX_CODIGOS_ANULACION_MASIVA) {
-    return { error: `Máximo ${MAX_CODIGOS_ANULACION_MASIVA} comprobantes por vez; seleccionaste ${unicos.length}.` };
+  const codigo = `${comprobante.serie}-${comprobante.correlativo}`;
+  if (comprobante.estado !== "emitido" && comprobante.estado !== "error_anulacion") {
+    return { codigo, estado: "error", mensaje: `Estado "${comprobante.estado}": solo se anulan comprobantes emitidos` };
   }
-
-  const resultados: ResultadoAnulacionMasiva[] = [];
-  for (const id of unicos) {
-    const comprobante = await obtenerComprobante(company.id, id);
-    if (!comprobante) {
-      resultados.push({ codigo: id, estado: "error", mensaje: "No existe en el sistema" });
-      continue;
-    }
-    const codigo = `${comprobante.serie}-${comprobante.correlativo}`;
-    if (comprobante.estado !== "emitido") {
-      resultados.push({ codigo, estado: "error", mensaje: `Estado "${comprobante.estado}": solo se anulan comprobantes emitidos` });
-      continue;
-    }
-    const r = await anularComprobante(company, comprobante, motivo);
-    resultados.push(r.error ? { codigo, estado: "error", mensaje: r.error } : { codigo, estado: "anulado" });
-  }
-  revalidatePath(`/${slug}`);
-  return { resultados };
+  const r = await anularComprobante(company, comprobante, motivo);
+  return r.error
+    ? { codigo, estado: "error", mensaje: r.error, reintentable: true }
+    : { codigo, estado: "anulado" };
 }

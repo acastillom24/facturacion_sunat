@@ -19,7 +19,7 @@ export default async function ComprobanteDetallePage({
   const moneda = comprobante.moneda === "PEN" ? "S/" : "$";
   const puedeReintentar = comprobante.estado === "pendiente" || comprobante.estado === "error";
   const puedeCancelarReintento = comprobante.estado === "pendiente";
-  const puedeAnular = comprobante.estado === "emitido";
+  const puedeAnular = comprobante.estado === "emitido" || comprobante.estado === "error_anulacion";
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">

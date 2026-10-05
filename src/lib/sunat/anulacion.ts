@@ -13,7 +13,9 @@ export async function anularComprobante(
   comprobante: Comprobante,
   motivoIn?: string,
 ): Promise<{ error?: string }> {
-  if (comprobante.estado !== "emitido") return { error: "Solo se pueden anular comprobantes emitidos" };
+  if (comprobante.estado !== "emitido" && comprobante.estado !== "error_anulacion") {
+    return { error: "Solo se pueden anular comprobantes emitidos o con error de anulación" };
+  }
   const empresa = companyToEmpresaSunat(company);
   const fecResumen = nowLimaIso();
 
@@ -62,7 +64,7 @@ export async function anularComprobante(
         resultado: { error: { message: err instanceof Error ? err.message : String(err) } },
         fecResumen,
       });
-      return { error: "Error de red al anular, intenta de nuevo" };
+      return { error: "No hubo respuesta de la API al anular; el comprobante quedó con error de anulación, reintenta desde su detalle" };
     }
   } else {
     const motivo = motivoIn?.trim() || "ANULACION SOLICITADA POR EL EMISOR";
@@ -111,7 +113,7 @@ export async function anularComprobante(
         resultado: { error: { message: err instanceof Error ? err.message : String(err) } },
         fecResumen,
       });
-      return { error: "Error de red al anular, intenta de nuevo" };
+      return { error: "No hubo respuesta de la API al anular; el comprobante quedó con error de anulación, reintenta desde su detalle" };
     }
   }
 

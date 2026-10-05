@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { anularSeleccionadosAction, type ResultadoAnulacionMasiva } from "./actions";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { MAX_COMPROBANTES_POR_LOTE, mensajeExcedeLimite } from "@/lib/limites";
+import type { ProgresoLote } from "@/lib/lote";
+import type { ResultadoAnulacionMasiva } from "./actions";
+import { anularLote } from "./anularLote";
+import { BarraProgreso } from "./BarraProgreso";
+
+const MAX_DESCARGA = 100;
 
 export interface FilaComprobante {
   id: string;
@@ -23,10 +30,13 @@ export function TablaComprobantes({
   filas: FilaComprobante[];
   vacio: string;
 }) {
+  const router = useRouter();
+  const cancelRef = useRef(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [trabajando, setTrabajando] = useState(false);
+  const [progreso, setProgreso] = useState<ProgresoLote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultados, setResultados] = useState<ResultadoAnulacionMasiva[] | null>(null);
 
@@ -38,7 +48,14 @@ export function TablaComprobantes({
       return n;
     });
 
+  function excede(max: number): boolean {
+    if (sel.size <= max) return false;
+    setError(mensajeExcedeLimite(sel.size, max, `seleccionaste ${sel.size} comprobantes`));
+    return true;
+  }
+
   async function descargar() {
+    if (excede(MAX_DESCARGA)) return;
     setError(null);
     setTrabajando(true);
     try {
@@ -68,14 +85,23 @@ export function TablaComprobantes({
     setConfirmando(false);
     setError(null);
     setTrabajando(true);
-    const r = await anularSeleccionadosAction(slug, [...sel], motivo);
-    setMotivo("");
-    setTrabajando(false);
-    if (r.error) setError(r.error);
-    else {
-      setResultados(r.resultados ?? []);
-      setSel(new Set());
+    cancelRef.current = false;
+    const { resultados: r, sinProcesar } = await anularLote(
+      slug,
+      [...sel].map((id) => ({ id })),
+      motivo,
+      setProgreso,
+      () => cancelRef.current,
+    );
+    if (sinProcesar > 0) {
+      setError(`Anulación cancelada: ${sinProcesar} comprobantes quedaron sin procesar (los ya anulados se mantienen).`);
     }
+    setMotivo("");
+    setProgreso(null);
+    setTrabajando(false);
+    setResultados(r);
+    setSel(new Set());
+    router.refresh();
   }
 
   return (
@@ -91,7 +117,7 @@ export function TablaComprobantes({
             {trabajando ? "Procesando..." : "Descargar (.zip)"}
           </button>
           <button
-            onClick={() => setConfirmando(true)}
+            onClick={() => !excede(MAX_COMPROBANTES_POR_LOTE) && setConfirmando(true)}
             disabled={trabajando}
             className="rounded-md bg-red-700 px-3 py-1.5 font-medium text-white hover:bg-red-600 disabled:opacity-60"
           >
@@ -103,6 +129,7 @@ export function TablaComprobantes({
         </div>
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {progreso && <BarraProgreso progreso={progreso} verbo="Anulando" hecho="anulados" onCancelar={() => (cancelRef.current = true)} />}
       {resultados && (
         <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm shadow-sm">
           <div className="flex justify-between">

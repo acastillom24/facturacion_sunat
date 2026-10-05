@@ -1,4 +1,5 @@
 import type { Company } from "@/lib/db/companies";
+import { MAX_COMPROBANTES_POR_LOTE } from "@/lib/limites";
 import { companyToEmpresaSunat } from "@/lib/db/companies";
 import { crearComprobantePendiente } from "@/lib/db/comprobantes";
 import { siguienteCorrelativo } from "@/lib/db/correlativos";
@@ -9,13 +10,10 @@ import type { ItemInput, TipoDoc } from "./types";
 import { inferirClienteDesdeDocumento, validarCliente } from "./validacion";
 
 /**
- * Límite de FILAS (no de comprobantes) por archivo, para no exceder el tiempo
- * máximo de la función serverless. En el plan Hobby de Vercel el límite de
- * duración es 60s; con este tope y llamadas de ~1s a APIsPERU debería sobrar
- * margen. Si tienes Vercel Pro puedes subir este valor y `maxDuration` en
- * `carga-masiva/page.tsx`.
+ * Límite de COMPROBANTES (grupos de filas, no filas) por archivo. Se emiten de a uno desde el
+ * cliente (una llamada corta por comprobante), así que solo acota el tamaño de la corrida.
  */
-export const MAX_FILAS_CARGA_MASIVA = 40;
+export const MAX_FILAS_CARGA_MASIVA = MAX_COMPROBANTES_POR_LOTE;
 
 const SERIE_DEFAULT: Record<TipoDoc, string> = { "01": "F001", "03": "B001" };
 
@@ -33,14 +31,14 @@ export interface ResultadoFilaCarga {
   prefijo?: string;
 }
 
-interface GrupoCarga {
+export interface GrupoCarga {
   filasNumeros: number[];
   cabecera: FilaCargaCruda;
   itemsCrudos: FilaCargaCruda["valores"][];
 }
 
 /** Agrupa filas por la columna "Grupo"; las filas sin grupo son cada una un comprobante independiente. */
-function agruparFilas(filas: FilaCargaCruda[]): GrupoCarga[] {
+export function agruparFilas(filas: FilaCargaCruda[]): GrupoCarga[] {
   const grupos = new Map<string, GrupoCarga>();
   const orden: string[] = [];
   let sinGrupoContador = 0;
@@ -67,7 +65,7 @@ function parseNumero(texto: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function procesarGrupo(company: Company, grupo: GrupoCarga): Promise<ResultadoFilaCarga> {
+export async function procesarGrupo(company: Company, grupo: GrupoCarga): Promise<ResultadoFilaCarga> {
   const filas = grupo.filasNumeros;
   const cabecera = grupo.cabecera.valores;
 
@@ -154,17 +152,4 @@ async function procesarGrupo(company: Company, grupo: GrupoCarga): Promise<Resul
     id: comprobante.id,
     prefijo: (cabecera.prefijo ?? "").trim(),
   };
-}
-
-/** Procesa los grupos EN ORDEN (no en paralelo): el correlativo de cada serie depende del anterior. */
-export async function procesarCargaMasiva(
-  company: Company,
-  filas: FilaCargaCruda[],
-): Promise<ResultadoFilaCarga[]> {
-  const grupos = agruparFilas(filas);
-  const resultados: ResultadoFilaCarga[] = [];
-  for (const grupo of grupos) {
-    resultados.push(await procesarGrupo(company, grupo));
-  }
-  return resultados;
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCompanyById } from "@/lib/db/companies";
-import { listarPendientesParaReintento } from "@/lib/db/comprobantes";
+import { listarPendientesParaReintento, recuperarAnulacionesAtascadas } from "@/lib/db/comprobantes";
 import { intentarEmitir } from "@/lib/sunat/emision";
 
 /**
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  const anulacionesRecuperadas = await recuperarAnulacionesAtascadas(2);
   const pendientes = await listarPendientesParaReintento();
   const resultados: { id: string; estadoFinal: string }[] = [];
 
@@ -36,5 +37,5 @@ export async function GET(req: NextRequest) {
     resultados.push({ id: comprobante.id, estadoFinal });
   }
 
-  return NextResponse.json({ procesados: resultados.length, resultados });
+  return NextResponse.json({ procesados: resultados.length, resultados, anulacionesRecuperadas });
 }

@@ -13,8 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Facturación SUNAT",
-  description: "Facturación electrónica multi-empresa (SUNAT / APIsPERU)",
+  metadataBase: new URL("https://www.emitesunat.com"),
+  title: "EmiteSunat | Facturación electrónica SUNAT para tu negocio",
+  description: "Emite boletas y facturas electrónicas, carga masiva desde Excel y anulaciones. Escríbenos por WhatsApp +51 952 520 362.",
+  openGraph: { title: "EmiteSunat | Facturación electrónica SUNAT", description: "Factura sin complicaciones. Vende sin límites.", url: "https://www.emitesunat.com", locale: "es_PE", type: "website" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

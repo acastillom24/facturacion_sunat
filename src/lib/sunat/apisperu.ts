@@ -214,6 +214,9 @@ export interface AnularBoletaParams {
   igvRate?: number;
 }
 
+/** Si la API no responde en este tiempo se aborta y el comprobante queda en "error_anulacion" (reintentable). */
+const TIMEOUT_ANULACION_MS = 20_000;
+
 export async function anularBoleta(params: AnularBoletaParams): Promise<SunatCdrResponse> {
   const {
     token,
@@ -260,6 +263,8 @@ export async function anularBoleta(params: AnularBoletaParams): Promise<SunatCdr
     method: "POST",
     headers: headers(token),
     body: JSON.stringify(payload),
+
+    signal: AbortSignal.timeout(TIMEOUT_ANULACION_MS),
   });
   const body = (await parseJsonSafe(res)) as { sunatResponse?: SunatCdrResponse };
   return body.sunatResponse ?? (body as SunatCdrResponse);
@@ -323,6 +328,8 @@ export async function anularFactura(params: AnularFacturaParams): Promise<SunatC
     method: "POST",
     headers: headers(token),
     body: JSON.stringify(payload),
+
+    signal: AbortSignal.timeout(TIMEOUT_ANULACION_MS),
   });
   const body = (await parseJsonSafe(res)) as { sunatResponse?: SunatCdrResponse };
   return body.sunatResponse ?? (body as SunatCdrResponse);

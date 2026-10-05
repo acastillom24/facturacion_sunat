@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { requireCompany } from "@/lib/auth/current";
-import { listarComprobantes } from "@/lib/db/comprobantes";
+import { listarComprobantes, recuperarAnulacionesAtascadas } from "@/lib/db/comprobantes";
 import { FiltroFechas } from "./FiltroFechas";
 import { TablaComprobantes } from "./TablaComprobantes";
 import { hoyLimaFecha } from "@/lib/sunat/apisperu";
+
+export const maxDuration = 60;
 
 const ESTADO_LABEL: Record<string, string> = {
   pendiente: "Pendiente / reintentando",
@@ -44,6 +46,9 @@ export default async function DashboardPage({
   const desde = sinFiltro ? hoyLimaFecha() : (sp.desde ?? "");
   const hasta = sinFiltro ? hoyLimaFecha() : (sp.hasta ?? "");
   const numero = sp.numero ?? "";
+
+  // Anulaciones que quedaron en "Anulando" (función cortada) pasan a "Error al anular" para poder reintentarlas.
+  await recuperarAnulacionesAtascadas(2, company.id).catch(() => 0);
 
   const comprobantes = await listarComprobantes(company.id, { desde, hasta, numero });
 

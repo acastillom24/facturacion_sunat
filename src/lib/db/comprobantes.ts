@@ -282,3 +282,26 @@ export async function listarPendientesParaReintento(limit = 25): Promise<Pendien
   if (error) throw error;
   return (data ?? []) as unknown as PendienteReintento[];
 }
+
+/**
+ * Comprobantes que quedaron en "anulando" porque la función murió a mitad de la anulación
+ * (corte de Vercel, etc.): pasan a "error_anulacion" para que se puedan reintentar.
+ * Una anulación normal dura segundos (la llamada a la API tiene timeout de 20 s), así que
+ * pasados `minutos` sin actualizarse se considera atascada.
+ */
+export async function recuperarAnulacionesAtascadas(minutos = 2, companyId?: string): Promise<number> {
+  const limite = new Date(Date.now() - minutos * 60 * 1000).toISOString();
+  let query = supabaseAdmin().from("comprobantes").select("id, anulacion").eq("estado", "anulando").lt("updated_at", limite);
+  if (companyId) query = query.eq("company_id", companyId);
+  const { data, error } = await query;
+  if (error) throw error;
+
+  for (const fila of (data ?? []) as { id: string; anulacion: Anulacion | null }[]) {
+    await marcarErrorAnulacion(fila.id, {
+      ...(fila.anulacion ?? { fecResumen: new Date().toISOString() }),
+      estado: "rechazado",
+      resultado: { error: { message: `La anulación quedó sin respuesta por más de ${minutos} minutos` } },
+    });
+  }
+  return data?.length ?? 0;
+}
