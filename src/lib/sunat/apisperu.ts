@@ -105,9 +105,9 @@ export function construirPayload(params: EmitirParams): ComprobantePayload {
     mtoImpVentaAcum += totalItem;
 
     details.push({
-      codProducto: it.codigo ?? "",
+      codProducto: (it.codigo ?? "").trim(),
       unidad: it.unidad ?? "NIU",
-      descripcion: it.descripcion,
+      descripcion: it.descripcion.replace(/\s+/g, " ").trim(),
       cantidad: cant,
       mtoValorUnitario: round2(valorUnitario),
       mtoValorVenta: valorVentaItem,

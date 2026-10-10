@@ -164,6 +164,27 @@ export async function buscarComprobantePorNumero(
   return data as Comprobante | null;
 }
 
+/** Reemplaza los datos a enviar de un comprobante aún no emitido (corrección manual antes de reintentar). */
+export async function actualizarDatosComprobante(
+  id: string,
+  datos: { cliente: ClienteSunat; items: ItemInput[]; payload: ComprobantePayload },
+): Promise<void> {
+  const { cliente, items, payload } = datos;
+  const { error } = await supabaseAdmin()
+    .from("comprobantes")
+    .update({
+      cliente,
+      items,
+      payload,
+      mto_oper_gravadas: payload.mtoOperGravadas,
+      mto_igv: payload.mtoIGV,
+      mto_imp_venta: payload.mtoImpVenta,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function marcarEmitido(id: string, sunatResponse: SunatCdrResponse, hash?: string): Promise<void> {
   const { error } = await supabaseAdmin()
     .from("comprobantes")

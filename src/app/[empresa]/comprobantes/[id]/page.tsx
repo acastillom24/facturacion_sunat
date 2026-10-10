@@ -4,6 +4,7 @@ import { requireCompany } from "@/lib/auth/current";
 import { obtenerComprobante } from "@/lib/db/comprobantes";
 import { AnularForm } from "./AnularForm";
 import { CancelarReintentoButton } from "./CancelarReintentoButton";
+import { EditarReintentarForm } from "./EditarReintentarForm";
 import { ReintentarButton } from "./ReintentarButton";
 
 export default async function ComprobanteDetallePage({
@@ -56,13 +57,22 @@ export default async function ComprobanteDetallePage({
 
       <section className="mt-4 rounded-lg border border-neutral-200 p-4">
         <h2 className="text-sm font-medium text-neutral-700">Ítems</h2>
-        <table className="mt-2 w-full text-sm">
+        <table className="mt-2 w-full table-fixed text-sm">
+          <thead>
+            <tr className="text-left text-xs text-neutral-500">
+              <th className="py-1 font-normal">Descripción</th>
+              <th className="w-14 py-1 text-right font-normal">Cant.</th>
+              <th className="w-24 py-1 text-right font-normal">P. unit.</th>
+            </tr>
+          </thead>
           <tbody>
             {comprobante.items.map((it, i) => (
-              <tr key={i} className="border-t border-neutral-100">
-                <td className="py-1">{it.descripcion}</td>
-                <td className="py-1 text-right">{it.cantidad}</td>
-                <td className="py-1 text-right">{moneda} {Number(it.precioUnitario).toFixed(2)}</td>
+              <tr key={i} className="border-t border-neutral-100 align-top">
+                <td className="break-words py-2 pr-3">{it.descripcion}</td>
+                <td className="py-2 text-right tabular-nums">{it.cantidad}</td>
+                <td className="whitespace-nowrap py-2 text-right tabular-nums">
+                  {moneda} {Number(it.precioUnitario).toFixed(2)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -107,6 +117,9 @@ export default async function ComprobanteDetallePage({
           </>
         )}
         {puedeReintentar && <ReintentarButton slug={empresa} id={comprobante.id} />}
+        {puedeReintentar && (
+          <EditarReintentarForm slug={empresa} id={comprobante.id} cliente={comprobante.cliente} items={comprobante.items} />
+        )}
         {puedeCancelarReintento && <CancelarReintentoButton slug={empresa} id={comprobante.id} />}
         {puedeAnular && <AnularForm slug={empresa} id={comprobante.id} esFactura={comprobante.tipo_doc === "01"} />}
       </div>

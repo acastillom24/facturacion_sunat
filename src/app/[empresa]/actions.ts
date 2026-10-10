@@ -6,6 +6,7 @@ import { verifyPassword } from "@/lib/auth/password";
 import { crearTokenSesion, sessionCookieName, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { companyToEmpresaSunat, getCompanyBySlug } from "@/lib/db/companies";
 import {
+  actualizarDatosComprobante,
   crearComprobantePendiente,
   buscarComprobantePorNumero,
   marcarCancelado,
@@ -117,6 +118,57 @@ export async function reintentarAction(slug: string, id: string): Promise<void> 
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante || (comprobante.estado !== "pendiente" && comprobante.estado !== "error")) return;
   await intentarEmitir(comprobante, company.apisperu_token);
+  redirect(`/${slug}/comprobantes/${id}`);
+}
+
+/** Corrige cliente/ítems de un comprobante pendiente o con error, reconstruye el payload y reintenta la emisión. */
+export async function editarYReintentarAction(
+  slug: string,
+  id: string,
+  cliente: ClienteSunat,
+  items: ItemInput[],
+): Promise<{ error?: string }> {
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { error: "Empresa no encontrada" };
+  const comprobante = await obtenerComprobante(company.id, id);
+  if (!comprobante || (comprobante.estado !== "pendiente" && comprobante.estado !== "error")) {
+    return { error: "Solo se pueden editar comprobantes pendientes o con error" };
+  }
+
+  const itemsLimpios = items.map((it) => ({
+    ...it,
+    descripcion: String(it.descripcion ?? "").trim(),
+    cantidad: Number(it.cantidad),
+    precioUnitario: Number(it.precioUnitario),
+  }));
+  if (itemsLimpios.length === 0) return { error: "Agrega al menos un ítem" };
+  if (itemsLimpios.some((it) => !it.descripcion || !(it.cantidad > 0) || !(it.precioUnitario > 0))) {
+    return { error: "Cada ítem necesita descripción, cantidad y precio mayores a 0" };
+  }
+
+  const clienteLimpio: ClienteSunat = {
+    tipoDoc: cliente.tipoDoc,
+    numDoc: String(cliente.numDoc ?? "-").trim() || "-",
+    rznSocial: String(cliente.rznSocial ?? "").trim() || "Cliente varios",
+  };
+  const total = itemsLimpios.reduce((acc, it) => acc + it.cantidad * it.precioUnitario, 0);
+  const errorCliente = validarCliente(comprobante.tipo_doc, clienteLimpio, total);
+  if (errorCliente) return { error: errorCliente };
+
+  const payload = construirPayload({
+    empresa: comprobante.payload.company,
+    tipoDoc: comprobante.tipo_doc,
+    serie: comprobante.serie,
+    correlativo: comprobante.correlativo,
+    items: itemsLimpios,
+    cliente: clienteLimpio,
+    fechaEmision: comprobante.payload.fechaEmision,
+    moneda: comprobante.moneda,
+    formaPago: comprobante.forma_pago as "Contado" | "Credito",
+    igvRate: Number(company.igv_rate),
+  });
+  await actualizarDatosComprobante(comprobante.id, { cliente: clienteLimpio, items: itemsLimpios, payload });
+  await intentarEmitir({ id: comprobante.id, payload, intentos: comprobante.intentos }, company.apisperu_token);
   redirect(`/${slug}/comprobantes/${id}`);
 }
 
