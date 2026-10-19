@@ -1,7 +1,10 @@
 # Facturación Electrónica SUNAT — Multi-empresa
 
 Aplicación web (Next.js + Supabase) para emitir y anular boletas/facturas
-electrónicas vía [APIsPERU](https://apisperu.com/), con soporte multi-empresa:
+electrónicas, con soporte multi-empresa y dos proveedores de emisión
+(configurables por empresa): [APIsPERU](https://apisperu.com/) o una API propia
+de SUNAT (repo `apis`). Incluye un panel de administración (`/admin`) para
+gestionar empresas y API keys.
 cada empresa tiene su propia URL (`/nombre-empresa`) y su propia contraseña,
 de forma que puedes tener sesiones simultáneas de distintas empresas en
 distintas pestañas del navegador.
@@ -28,6 +31,37 @@ distintas pestañas del navegador.
   para el plan Hobby de Vercel, 60s por función); para más volumen, sube
   varios archivos.
 
+## Proveedores de emisión (por empresa)
+
+Cada empresa elige su proveedor (`companies.sunat_provider`) desde su ficha en
+`/admin`; no hay variable de entorno global para esto. Cada comprobante guarda
+con qué proveedor se emitió, y las anulaciones y el PDF usan ese mismo.
+
+- **APIsPERU**: solo requiere el token de la empresa.
+- **API propia**: requiere el token (una API key de la API propia, creada en
+  `/admin/keys` con el **correo del dueño**, ya que la API asocia las empresas a
+  esa cuenta) y, además, ambiente (beta/producción), usuario y clave SOL, y
+  certificado digital `.p12`/`.pfx`. Guardar la ficha registra la empresa en la
+  API propia.
+
+El token de cada empresa es obligatorio en ambos casos y se guarda cifrado.
+
+## Panel de administración (`/admin`)
+
+Acceso con contraseña + código 2FA (TOTP), con opciones de restringir por IP y
+por subdominio dedicado. Permite:
+
+- Crear empresas y editar su proveedor, token, SOL y certificado, en un solo
+  formulario por empresa. Los formularios conservan lo escrito cuando hay un
+  error y resaltan en rojo el campo con problema.
+- Suspender/reactivar empresas, restablecer su contraseña, subir el logo y
+  fijar correlativos.
+- **API keys** (`/admin/keys`): listar con dueño y uso mensual/diario contra su
+  límite (marca revocadas y vencidas), crear (la key completa se muestra una
+  sola vez; se crean con producto `sunat`), editar límites y vencimiento, y
+  revocar o restaurar.
+- Cada acción verifica la sesión admin y queda registrada en una auditoría.
+
 ### Validaciones de cliente (individuales y en la carga masiva)
 
 - **Factura**: siempre requiere RUC (11 dígitos) y razón social.
@@ -41,13 +75,16 @@ tanto al formulario individual como a cada fila de la carga masiva.
 ## Stack
 
 - **Next.js 16 (App Router) + TypeScript** — UI, Server Actions y API routes en un solo proyecto, pensado para Vercel.
+- **API propia de SUNAT** (opcional) — servicio aparte (repo `apis`), configurado con `SUNAT_API_URL`.
 - **Supabase (Postgres)** — base de datos. Se usa solo como Postgres vía la `service_role` key desde el servidor (no se usa Supabase Auth: cada empresa tiene su propia contraseña, no un usuario compartido).
 - **Vercel Cron** — reintentos programados.
 
 ## Estructura relevante
 
 ```
-src/lib/sunat/        Cliente APIsPERU (emitir, anular, PDF, ticket, monto en letras)
+src/lib/sunat/        Clientes APIsPERU y API propia (emitir, anular, PDF, ticket, API keys)
+src/lib/crypto/       Cifrado de los tokens de empresa
+src/app/admin/        Panel de administración (empresas y API keys)
 src/lib/db/           Acceso a Supabase (companies, correlativos, comprobantes)
 src/lib/auth/         Sesión por empresa (cookie JWT, una cookie por slug) y hash de password
 src/app/[empresa]/    UI: login, dashboard/historial, nuevo comprobante, detalle
@@ -62,7 +99,7 @@ scripts/create-company.ts   Alta de empresas (CLI)
 
 1. Crea un proyecto gratuito en [supabase.com](https://supabase.com).
 2. Ve a **SQL Editor** y ejecuta, en orden, el contenido de cada archivo en
-   `supabase/migrations/` (`0001_init.sql`, luego `0002_correlativos_rpc.sql`, etc.).
+   `supabase/migrations/` (`0001_init.sql` hasta `0005_provider_audit.sql`).
    Si ya tenías el proyecto corriendo desde antes del 0002, **debes aplicarlo
    igual**: sin esas funciones, la app no puede asignar correlativos y la
    emisión de comprobantes falla.
@@ -70,14 +107,24 @@ scripts/create-company.ts   Alta de empresas (CLI)
 
 ### 2. Variables de entorno
 
-Copia `.env.example` a `.env.local` y completa:
+Copia `.env.example` a `.env.local` y completa los valores; el propio archivo
+documenta cómo generar cada uno. Variables:
 
-```
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SESSION_SECRET=<genera con: openssl rand -base64 32>
-CRON_SECRET=<otra cadena aleatoria>
-```
+| Variable | Uso |
+|---|---|
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Base de datos (solo servidor) |
+| `SESSION_SECRET` | Firma de las cookies de sesión por empresa |
+| `CRON_SECRET` | Autoriza la llamada al cron de reintentos |
+| `ADMIN_PASSWORD_HASH` | Hash de la contraseña de `/admin` |
+| `TOKEN_ENCRYPTION_KEY` | Clave para cifrar los tokens de empresa |
+| `ADMIN_TOTP_SECRET` | 2FA de `/admin` |
+| `ADMIN_ALLOWED_IPS`, `ADMIN_HOST` | Opcionales: restringir `/admin` por IP / subdominio |
+| `SUNAT_API_URL` | URL de la API propia |
+| `ADMIN_API_SECRET` | Administración de API keys; debe coincidir con el de la API |
+
+> No subas `.env.local` al repositorio ni compartas estos valores. No cambies
+> `TOKEN_ENCRYPTION_KEY` una vez que hay empresas guardadas: sus tokens dejarían
+> de poder descifrarse.
 
 ### 3. Instalar dependencias y correr en local
 
@@ -88,7 +135,10 @@ npm run dev
 
 ### 4. Crear tu primera empresa
 
-Cada empresa necesita un **token permanente de APIsPERU** (se genera al crear
+Lo más cómodo es hacerlo desde el panel `/admin` (botón "Nueva empresa"). Como
+alternativa, el script de línea de comandos que sigue.
+
+Con APIsPERU, cada empresa necesita un **token permanente de APIsPERU** (se genera al crear
 la empresa en tu cuenta de APIsPERU: `POST /companies`, o desde su panel web)
 y un RUC/razón social ya validados con su certificado digital allí.
 
@@ -144,7 +194,7 @@ estás seguro, usa una serie nueva (ej. `B002`) desde 1.
 ### 5. Desplegar en Vercel
 
 1. Sube el repo a GitHub y en Vercel elige "Import Project".
-2. Configura las mismas variables de entorno (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `CRON_SECRET`) en Vercel > Settings > Environment Variables.
+2. Configura las mismas variables de entorno de la tabla anterior en Vercel > Settings > Environment Variables.
 3. Despliega. Cada empresa quedará accesible en `https://tu-dominio.vercel.app/nombre-empresa`.
 
 #### Sobre el cron de reintentos
@@ -189,6 +239,9 @@ Ambas opciones usan el mismo endpoint; no requieren cambios de código.
   SELECT + UPDATE desde la app: es una sola ida a la base de datos en lugar de
   dos, y de paso evita que dos emisiones simultáneas puedan repetir el mismo
   número.
+
+- **Secretos**: los tokens de empresa se guardan cifrados en la base de datos
+  y solo se descifran en el servidor al llamar al proveedor.
 
 ## Próximas mejoras posibles
 

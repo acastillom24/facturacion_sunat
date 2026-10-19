@@ -12,7 +12,7 @@ export async function requireCompany(slug: string): Promise<Company> {
     redirect(`/${slug}/login`);
   }
   const company = await getCompanyById(sesion.companyId);
-  if (!company) {
+  if (!company || !company.activa) {
     redirect(`/${slug}/login`);
   }
   return company;
@@ -24,5 +24,6 @@ export async function getCompanyFromSession(slug: string): Promise<Company | nul
   const cookie = jar.get(sessionCookieName(slug));
   const sesion = cookie ? await verificarTokenSesion(cookie.value) : null;
   if (!sesion || sesion.slug !== slug) return null;
-  return getCompanyById(sesion.companyId);
+  const company = await getCompanyById(sesion.companyId);
+  return company?.activa ? company : null;
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ADMIN_COOKIE, verificarTokenAdmin } from "@/lib/auth/admin";
 import { sessionCookieName, verificarTokenSesion } from "@/lib/auth/session";
 
 const PUBLIC_SUBPATHS = new Set(["login"]);
@@ -10,6 +11,19 @@ export async function proxy(req: NextRequest) {
   if (segments.length === 0) return NextResponse.next();
 
   const [slug, sub] = segments;
+  if (slug === "admin") {
+    // Subdominio dedicado: si ADMIN_HOST está definido, /admin solo responde en ese host.
+    const adminHost = process.env.ADMIN_HOST;
+    if (adminHost && req.headers.get("host") !== adminHost) return new NextResponse("Not found", { status: 404 });
+    // Lista de IPs permitidas (separadas por coma); vacía = sin restricción.
+    const permitidas = (process.env.ADMIN_ALLOWED_IPS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+    if (permitidas.length && !permitidas.includes(ip)) return new NextResponse("Not found", { status: 404 });
+    if (sub === "login") return NextResponse.next();
+    const c = req.cookies.get(ADMIN_COOKIE);
+    if (c && (await verificarTokenAdmin(c.value))) return NextResponse.next();
+    return NextResponse.redirect(new URL("/admin/login", req.url));
+  }
   if (RESERVED_SLUGS.has(slug)) return NextResponse.next();
   if (sub && PUBLIC_SUBPATHS.has(sub)) return NextResponse.next();
 

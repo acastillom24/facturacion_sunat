@@ -26,6 +26,7 @@ export async function loginAction(slug: string, formData: FormData): Promise<{ e
   const password = String(formData.get("password") ?? "");
   const company = await getCompanyBySlug(slug);
   if (!company) return { error: "Empresa no encontrada" };
+  if (!company.activa) return { error: "Empresa suspendida, contacta al administrador" };
 
   const valido = await verifyPassword(password, company.password_hash);
   if (!valido) return { error: "Contraseña incorrecta" };
@@ -108,7 +109,7 @@ export async function crearComprobanteAction(
     payload,
   });
 
-  await intentarEmitir(comprobante, company.apisperu_token);
+  await intentarEmitir(comprobante, company);
   redirect(`/${slug}/comprobantes/${comprobante.id}`);
 }
 
@@ -117,7 +118,7 @@ export async function reintentarAction(slug: string, id: string): Promise<void> 
   if (!company) return;
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante || (comprobante.estado !== "pendiente" && comprobante.estado !== "error")) return;
-  await intentarEmitir(comprobante, company.apisperu_token);
+  await intentarEmitir(comprobante, company);
   redirect(`/${slug}/comprobantes/${id}`);
 }
 
@@ -168,7 +169,7 @@ export async function editarYReintentarAction(
     igvRate: Number(company.igv_rate),
   });
   await actualizarDatosComprobante(comprobante.id, { cliente: clienteLimpio, items: itemsLimpios, payload });
-  await intentarEmitir({ id: comprobante.id, payload, intentos: comprobante.intentos }, company.apisperu_token);
+  await intentarEmitir({ id: comprobante.id, payload, intentos: comprobante.intentos }, company);
   redirect(`/${slug}/comprobantes/${id}`);
 }
 
@@ -252,7 +253,7 @@ export async function reintentarEmisionAction(
   if (comprobante.estado !== "pendiente" && comprobante.estado !== "error") {
     return { estado: "error", mensaje: `Estado "${comprobante.estado}": no se puede reintentar` };
   }
-  const { estadoFinal } = await intentarEmitir(comprobante, company.apisperu_token);
+  const { estadoFinal } = await intentarEmitir(comprobante, company);
   return { estado: estadoFinal as "emitido" | "pendiente" | "error" };
 }
 

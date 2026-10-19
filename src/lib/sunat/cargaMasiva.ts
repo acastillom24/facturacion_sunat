@@ -139,7 +139,7 @@ export async function procesarGrupo(company: Company, grupo: GrupoCarga): Promis
     payload,
   });
 
-  const { estadoFinal } = await intentarEmitir(comprobante, company.apisperu_token);
+  const { estadoFinal } = await intentarEmitir(comprobante, company);
 
   return {
     filas,

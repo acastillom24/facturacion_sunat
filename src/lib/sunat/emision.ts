@@ -5,25 +5,29 @@ import {
   type ComprobanteReintentable,
 } from "@/lib/db/comprobantes";
 import { emitirComprobante } from "./apisperu";
+import { emitirComprobantePropio, tokenApisperu, usaApiPropia } from "./apiPropia";
 
 export const MAX_INTENTOS = 6; // 6 reintentos horarios ~ 6h antes de marcar error definitivo
 
 /**
- * Intenta emitir un comprobante ya creado (estado pendiente) contra APIsPERU.
+ * Intenta emitir un comprobante ya creado (estado pendiente) contra APIsPERU o la API propia según `companies.sunat_provider`.
  * Usado tanto en la creación inicial como por el cron de reintentos. Solo
  * necesita id/payload/intentos, así los llamadores pueden traer de la base
  * de datos únicamente esas columnas en vez del comprobante completo.
  */
-export async function intentarEmitir(comprobante: ComprobanteReintentable, token: string): Promise<{
+export async function intentarEmitir(comprobante: ComprobanteReintentable, company: { apisperu_token: string | null; sunat_provider: "apisperu" | "propia" }): Promise<{
   ok: boolean;
   estadoFinal: string;
 }> {
   try {
-    const resp = await emitirComprobante(token, comprobante.payload);
+    const propia = usaApiPropia(company);
+    const resp = propia
+      ? await emitirComprobantePropio(comprobante.payload, tokenApisperu(company))
+      : await emitirComprobante(tokenApisperu(company), comprobante.payload);
     const sunat = resp.sunatResponse;
 
     if (sunat?.success) {
-      await marcarEmitido(comprobante.id, sunat, resp.hash);
+      await marcarEmitido(comprobante.id, sunat, resp.hash, propia ? "propia" : "apisperu");
       return { ok: true, estadoFinal: "emitido" };
     }
 

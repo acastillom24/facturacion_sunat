@@ -12,6 +12,7 @@
  */
 import { config } from "dotenv";
 import bcrypt from "bcryptjs";
+import { cifrar } from "../src/lib/crypto/secretos";
 import { supabaseAdmin } from "../src/lib/supabase/admin";
 
 config({ path: ".env.local" });
@@ -27,7 +28,7 @@ function parseArgs(): Record<string, string> {
 
 async function main() {
   const args = parseArgs();
-  const required = ["slug", "password", "ruc", "razonSocial", "token"];
+  const required = ["slug", "password", "ruc", "razonSocial"];
   const faltantes = required.filter((k) => !args[k]);
   if (faltantes.length) {
     console.error(`Faltan argumentos: ${faltantes.join(", ")}`);
@@ -54,7 +55,7 @@ async function main() {
     distrito: args.distrito ?? existente?.distrito ?? "LIMA",
     direccion: args.direccion ?? existente?.direccion ?? "",
     cod_local: args.codLocal ?? existente?.cod_local ?? "0000",
-    apisperu_token: args.token,
+    apisperu_token: (args.token ? cifrar(args.token) : null) ?? existente?.apisperu_token ?? null,
     igv_rate: args.igvRate ? Number(args.igvRate) : existente?.igv_rate ?? 0.18,
     logo_url: args.logoUrl ?? existente?.logo_url ?? null,
   };

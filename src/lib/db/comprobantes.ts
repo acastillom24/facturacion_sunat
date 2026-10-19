@@ -41,6 +41,7 @@ export interface Comprobante {
   intentos: number;
   proximo_intento_at: string | null;
   anulacion: Anulacion | null;
+  sunat_provider: "apisperu" | "propia" | null;
   created_at: string;
   updated_at: string;
 }
@@ -185,13 +186,19 @@ export async function actualizarDatosComprobante(
   if (error) throw error;
 }
 
-export async function marcarEmitido(id: string, sunatResponse: SunatCdrResponse, hash?: string): Promise<void> {
+export async function marcarEmitido(
+  id: string,
+  sunatResponse: SunatCdrResponse,
+  hash?: string,
+  proveedor?: "apisperu" | "propia",
+): Promise<void> {
   const { error } = await supabaseAdmin()
     .from("comprobantes")
     .update({
       estado: "emitido",
       sunat_response: sunatResponse,
       hash: hash ?? null,
+      ...(proveedor ? { sunat_provider: proveedor } : {}),
       proximo_intento_at: null,
       updated_at: new Date().toISOString(),
     })

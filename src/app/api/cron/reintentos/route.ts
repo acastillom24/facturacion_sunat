@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   for (const comprobante of pendientes) {
     const company = await obtenerEmpresaCacheada(comprobante.company_id);
     if (!company) continue;
-    const { estadoFinal } = await intentarEmitir(comprobante, company.apisperu_token);
+    const { estadoFinal } = await intentarEmitir(comprobante, company);
     resultados.push({ id: comprobante.id, estadoFinal });
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCompanyFromSession } from "@/lib/auth/current";
 import { obtenerComprobante } from "@/lib/db/comprobantes";
 import { descargarPdfComprobante } from "@/lib/sunat/apisperu";
+import { descargarPdfPropio, proveedorDe, tokenApisperu, usaApiPropia } from "@/lib/sunat/apiPropia";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ empresa: string; id: string }> }) {
   const { empresa, id } = await params;
@@ -13,7 +14,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ emp
     return NextResponse.json({ error: "El comprobante aún no fue emitido" }, { status: 409 });
   }
 
-  const pdf = await descargarPdfComprobante(company.apisperu_token, comprobante.payload);
+  const pdf = usaApiPropia(proveedorDe(comprobante, company))
+    ? await descargarPdfPropio({ token: tokenApisperu(company), ruc: company.ruc, tipoDoc: comprobante.tipo_doc, serie: comprobante.serie, correlativo: comprobante.correlativo })
+    : await descargarPdfComprobante(tokenApisperu(company), comprobante.payload);
   return new NextResponse(pdf, {
     headers: {
       "Content-Type": "application/pdf",

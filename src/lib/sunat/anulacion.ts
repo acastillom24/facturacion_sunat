@@ -3,6 +3,7 @@ import { companyToEmpresaSunat } from "@/lib/db/companies";
 import { marcarAnulado, marcarAnulando, marcarErrorAnulacion, type Comprobante } from "@/lib/db/comprobantes";
 import { siguienteCorrelativoResumen } from "@/lib/db/correlativos";
 import { anularBoleta, anularFactura, nowLimaIso } from "./apisperu";
+import { anularBoletaPropia, anularFacturaPropia, proveedorDe, tokenApisperu, usaApiPropia } from "./apiPropia";
 
 /**
  * Anula un comprobante ya emitido: boleta -> resumen diario (estado 3);
@@ -27,8 +28,10 @@ export async function anularComprobante(
       fecResumen,
     });
     try {
-      const resultado = await anularBoleta({
-        token: company.apisperu_token,
+      const resultado = usaApiPropia(proveedorDe(comprobante, company))
+        ? await anularBoletaPropia({ token: tokenApisperu(company), ruc: company.ruc, serie: comprobante.serie, correlativo: comprobante.correlativo })
+        : await anularBoleta({
+        token: tokenApisperu(company),
         empresa,
         serie: comprobante.serie,
         correlativo: comprobante.correlativo,
@@ -76,8 +79,10 @@ export async function anularComprobante(
       fecResumen,
     });
     try {
-      const resultado = await anularFactura({
-        token: company.apisperu_token,
+      const resultado = usaApiPropia(proveedorDe(comprobante, company))
+        ? await anularFacturaPropia({ token: tokenApisperu(company), ruc: company.ruc, serie: comprobante.serie, correlativo: comprobante.correlativo, motivo })
+        : await anularFactura({
+        token: tokenApisperu(company),
         empresa,
         serie: comprobante.serie,
         correlativo: comprobante.correlativo,

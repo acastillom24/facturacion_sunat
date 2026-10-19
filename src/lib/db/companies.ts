@@ -14,9 +14,11 @@ export interface Company {
   distrito: string;
   direccion: string;
   cod_local: string;
-  apisperu_token: string;
+  apisperu_token: string | null;
+  sunat_provider: "apisperu" | "propia";
   igv_rate: number;
   logo_url: string | null;
+  activa: boolean;
   created_at: string;
 }
 
