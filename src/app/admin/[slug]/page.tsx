@@ -68,6 +68,7 @@ export default async function AdminEmpresaPage({ params }: { params: Promise<{ s
         <CorrelativosForm slug={slug} series={series ?? []} />
       </section>
 
+      {company.sunat_provider === "propia" && (
       <section className="mt-6">
         <h2 className="text-sm font-semibold text-neutral-700">Estado en la API propia</h2>
         {errorApi && <p className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-700">No se pudo consultar la API: {errorApi}</p>}
@@ -93,6 +94,7 @@ export default async function AdminEmpresaPage({ params }: { params: Promise<{ s
           </>
         )}
       </section>
+      )}
     </main>
   );
 }
