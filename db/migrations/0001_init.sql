@@ -1,5 +1,5 @@
 -- Esquema inicial: facturación electrónica multi-empresa (SUNAT / APIsPERU)
--- Ejecutar en el SQL editor de Supabase (o vía `supabase db push`).
+-- Aplicar en Neon con la connection string directa.
 
 create extension if not exists "pgcrypto";
 

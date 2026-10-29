@@ -1,23 +1,18 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query, queryOne } from "@/lib/db/client";
 import type { TipoDoc } from "@/lib/sunat/types";
 
 /**
  * Reserva y devuelve el siguiente correlativo para (empresa, tipoDoc, serie)
  * en una sola llamada atómica (función `siguiente_correlativo` en Postgres,
- * ver supabase/migrations/0002_correlativos_rpc.sql).
+ * ver db/migrations/0002_correlativos_rpc.sql).
  */
 export async function siguienteCorrelativo(
   companyId: string,
   tipoDoc: TipoDoc,
   serie: string,
 ): Promise<number> {
-  const { data, error } = await supabaseAdmin().rpc("siguiente_correlativo", {
-    p_company_id: companyId,
-    p_tipo_doc: tipoDoc,
-    p_serie: serie,
-  });
-  if (error) throw error;
-  return data as number;
+  const [fila] = await query<{ n: number }>("select siguiente_correlativo($1, $2, $3) as n", [companyId, tipoDoc, serie]);
+  return fila.n;
 }
 
 /** Solo lectura: qué correlativo tocaría a continuación, sin reservarlo. Para mostrarlo en la UI. */
@@ -26,15 +21,11 @@ export async function previsualizarCorrelativo(
   tipoDoc: TipoDoc,
   serie: string,
 ): Promise<number> {
-  const { data, error } = await supabaseAdmin()
-    .from("correlativos")
-    .select("ultimo_correlativo")
-    .eq("company_id", companyId)
-    .eq("tipo_doc", tipoDoc)
-    .eq("serie", serie)
-    .maybeSingle();
-  if (error) throw error;
-  return (data?.ultimo_correlativo ?? 0) + 1;
+  const fila = await queryOne<{ ultimo_correlativo: number }>(
+    "select ultimo_correlativo from correlativos where company_id = $1 and tipo_doc = $2 and serie = $3",
+    [companyId, tipoDoc, serie],
+  );
+  return (fila?.ultimo_correlativo ?? 0) + 1;
 }
 
 /**
@@ -43,10 +34,6 @@ export async function previsualizarCorrelativo(
  * `siguiente_correlativo_resumen` en Postgres).
  */
 export async function siguienteCorrelativoResumen(companyId: string, fecha: string): Promise<number> {
-  const { data, error } = await supabaseAdmin().rpc("siguiente_correlativo_resumen", {
-    p_company_id: companyId,
-    p_fecha: fecha,
-  });
-  if (error) throw error;
-  return data as number;
+  const [fila] = await query<{ n: number }>("select siguiente_correlativo_resumen($1, $2::date) as n", [companyId, fecha]);
+  return fila.n;
 }

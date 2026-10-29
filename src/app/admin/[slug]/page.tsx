@@ -5,7 +5,7 @@ import { getCompanyBySlug } from "@/lib/db/companies";
 import { estadoEmpresaPropia, type EstadoEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
 import { tokenApisperu } from "@/lib/sunat/apiPropia";
 import { ControlesEmpresa } from "./ControlesEmpresa";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/db/client";
 import { CorrelativosForm, LogoForm } from "./LogoYCorrelativos";
 import { ProveedorForm } from "./ProveedorForm";
 
@@ -17,12 +17,10 @@ export default async function AdminEmpresaPage({ params }: { params: Promise<{ s
   const company = await getCompanyBySlug(slug);
   if (!company) notFound();
 
-  const { data: series } = await supabaseAdmin()
-    .from("correlativos")
-    .select("tipo_doc, serie, ultimo_correlativo")
-    .eq("company_id", company.id)
-    .order("tipo_doc", { ascending: false })
-    .order("serie");
+  const series = await query<{ tipo_doc: string; serie: string; ultimo_correlativo: number }>(
+    "select tipo_doc, serie, ultimo_correlativo from correlativos where company_id = $1 order by tipo_doc desc, serie",
+    [company.id],
+  );
 
   let estado: EstadoEmpresaPropia | null = null;
   let errorApi: string | null = null;

@@ -1,6 +1,6 @@
 # Facturación Electrónica SUNAT — Multi-empresa
 
-Aplicación web (Next.js + Supabase) para emitir y anular boletas/facturas
+Aplicación web (Next.js + Neon) para emitir y anular boletas/facturas
 electrónicas, con soporte multi-empresa y dos proveedores de emisión
 (configurables por empresa): [APIsPERU](https://apisperu.com/) o una API propia
 de SUNAT (repo `apis`). Incluye un panel de administración (`/admin`) para
@@ -76,7 +76,8 @@ tanto al formulario individual como a cada fila de la carga masiva.
 
 - **Next.js 16 (App Router) + TypeScript** — UI, Server Actions y API routes en un solo proyecto, pensado para Vercel.
 - **API propia de SUNAT** (opcional) — servicio aparte (repo `apis`), configurado con `SUNAT_API_URL`.
-- **Supabase (Postgres)** — base de datos. Se usa solo como Postgres vía la `service_role` key desde el servidor (no se usa Supabase Auth: cada empresa tiene su propia contraseña, no un usuario compartido).
+- **Neon (Postgres)** — base de datos, accedida desde el servidor con `@neondatabase/serverless` (`DATABASE_URL`). No hay servicio de auth externo: cada empresa tiene su propia contraseña.
+- **Cloudinary** — almacenamiento de logos (carpeta `facturacion_sunat`).
 - **Vercel Cron** — reintentos programados.
 
 ## Estructura relevante
@@ -85,25 +86,23 @@ tanto al formulario individual como a cada fila de la carga masiva.
 src/lib/sunat/        Clientes APIsPERU y API propia (emitir, anular, PDF, ticket, API keys)
 src/lib/crypto/       Cifrado de los tokens de empresa
 src/app/admin/        Panel de administración (empresas y API keys)
-src/lib/db/           Acceso a Supabase (companies, correlativos, comprobantes)
+src/lib/db/           Acceso a Neon (companies, correlativos, comprobantes)
 src/lib/auth/         Sesión por empresa (cookie JWT, una cookie por slug) y hash de password
 src/app/[empresa]/    UI: login, dashboard/historial, nuevo comprobante, detalle
 src/app/api/cron/     Endpoint de reintentos
-supabase/migrations/  SQL del esquema
+db/migrations/  SQL del esquema
 scripts/create-company.ts   Alta de empresas (CLI)
 ```
 
 ## Puesta en marcha
 
-### 1. Crear el proyecto en Supabase
+### 1. Crear el proyecto en Neon
 
-1. Crea un proyecto gratuito en [supabase.com](https://supabase.com).
-2. Ve a **SQL Editor** y ejecuta, en orden, el contenido de cada archivo en
-   `supabase/migrations/` (`0001_init.sql` hasta `0005_provider_audit.sql`).
-   Si ya tenías el proyecto corriendo desde antes del 0002, **debes aplicarlo
-   igual**: sin esas funciones, la app no puede asignar correlativos y la
-   emisión de comprobantes falla.
-3. En **Project Settings > API** copia `Project URL` y la `service_role` key (¡no la `anon` key!).
+1. Crea un proyecto en [neon.tech](https://neon.tech).
+2. Aplica, en orden, los archivos de `db/migrations/` (`0001_init.sql` hasta
+   `0005_provider_audit.sql`) con la connection string directa (sin `-pooler`).
+   Sin las funciones del `0002` la app no puede asignar correlativos.
+3. Copia la connection string pooled en `DATABASE_URL` y la directa en `DIRECT_DATABASE_URL`.
 
 ### 2. Variables de entorno
 
@@ -112,7 +111,8 @@ documenta cómo generar cada uno. Variables:
 
 | Variable | Uso |
 |---|---|
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Base de datos (solo servidor) |
+| `DATABASE_URL`, `DIRECT_DATABASE_URL` | Base de datos Neon (pooled / directa para migraciones) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Logos (solo servidor) |
 | `SESSION_SECRET` | Firma de las cookies de sesión por empresa |
 | `CRON_SECRET` | Autoriza la llamada al cron de reintentos |
 | `ADMIN_PASSWORD_HASH` | Hash de la contraseña de `/admin` |
@@ -163,11 +163,15 @@ internamente para el PDF A4), así que hay que indicarlo aparte. Dos formas:
   del proyecto (ej. `public/logos/le-chic.png`) y usa una ruta que empiece con
   `/` (ej. `--logoUrl="/logos/le-chic.png"`). El ticket lo lee directo del
   disco de la función serverless — no hay ninguna petición de red ni consulta
-  extra a Supabase por cada ticket generado.
+  extra a la base de datos por cada ticket generado.
 - **URL externa**: cualquier URL `http(s)://...` pública (tu propio hosting,
-  Supabase Storage, etc.). En este caso sí se hace una petición HTTP por cada
+  Cloudinary, etc.). En este caso sí se hace una petición HTTP por cada
   ticket generado; para un logo pequeño (unos KB) el costo es marginal, pero
   si buscas costo cero usa la opción anterior.
+
+Desde el panel `/admin` también se puede subir o cambiar el logo de una empresa
+(PNG/JPG, máx. 500 KB): se guarda en Cloudinary, carpeta `facturacion_sunat`, y
+la URL queda en `companies.logo_url`.
 
 Vuelve a ejecutar el mismo comando (con nuevo `--password`) para cambiar la
 contraseña de una empresa existente — usa `upsert` por `slug`.
@@ -228,13 +232,13 @@ Ambas opciones usan el mismo endpoint; no requieren cambios de código.
   y el estado vuelve a `pendiente`; el cron recoge todo lo vencido. Tras 6
   intentos fallidos pasa a `error` (ya no se reintenta solo; puede reintentarse
   manualmente desde el detalle del comprobante).
-- **Consumo en Supabase**: el cliente `service_role` se cachea a nivel de
-  módulo (`src/lib/supabase/admin.ts`) en vez de crearse en cada llamada. Las
+- **Consumo en la base de datos**: el cliente de Neon (`src/lib/db/client.ts`) se cachea a nivel de
+  módulo. Las
   consultas seleccionan solo las columnas que cada pantalla necesita — el
   historial (`listarComprobantes`) no trae `payload`/`items`/`sunat_response`,
   que son los campos JSONB más pesados. El correlativo (boletas/facturas) y el
   correlativo de resumen/baja se reservan con una función SQL atómica
-  (`supabase/migrations/0002_correlativos_rpc.sql`, funciones
+  (`db/migrations/0002_correlativos_rpc.sql`, funciones
   `siguiente_correlativo` / `siguiente_correlativo_resumen`) en vez de un
   SELECT + UPDATE desde la app: es una sola ida a la base de datos en lugar de
   dos, y de paso evita que dos emisiones simultáneas puedan repetir el mismo
@@ -249,3 +253,12 @@ Ambas opciones usan el mismo endpoint; no requieren cambios de código.
   APIsPERU ya los soporta, ver `files/swagger.json`).
 - Reportes/exportación del historial.
 - Roles dentro de una misma empresa (cajero vs. administrador).
+
+## Seguridad
+
+- Toda acción de servidor de `/[empresa]` valida la sesión de la empresa
+  (`getCompanyFromSession`); el `proxy.ts` por sí solo no basta, porque las
+  acciones pueden invocarse por POST desde cualquier ruta.
+- `/api/cron/reintentos` exige `CRON_SECRET`; si la variable no está definida, responde 401.
+- Todas las consultas SQL son parametrizadas (`src/lib/db/client.ts`).
+- Revisa periódicamente `npm audit` y mantén `next` actualizado.

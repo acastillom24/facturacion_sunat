@@ -8,31 +8,28 @@ import { cifrar } from "@/lib/crypto/secretos";
 import { registrarAuditoria } from "@/lib/db/audit";
 import { verificarTotp } from "@/lib/auth/totp";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { estaBloqueado, limpiarFallos, registrarFallo } from "@/lib/auth/limite";
 import { getCompanyBySlug } from "@/lib/db/companies";
 import { tokenApisperu } from "@/lib/sunat/apiPropia";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query, queryOne } from "@/lib/db/client";
+import { v2 as cloudinary } from "cloudinary";
 import { estadoEmpresaPropia, guardarEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
-
-// Freno básico a fuerza bruta (por instancia; suficiente como primera barrera).
-const intentos = new Map<string, { n: number; hasta: number }>();
 
 export async function adminLoginAction(_prev: { error?: string }, formData: FormData): Promise<{ error?: string }> {
   const hash = process.env.ADMIN_PASSWORD_HASH;
   if (!hash) return { error: "Falta ADMIN_PASSWORD_HASH en el entorno" };
-  const ahora = Date.now();
-  const reg = intentos.get("admin");
-  if (reg && reg.n >= 5 && reg.hasta > ahora) return { error: "Demasiados intentos, espera unos minutos" };
+  if (await estaBloqueado("admin")) return { error: "Demasiados intentos, espera unos minutos" };
 
   const ok = await verifyPassword(String(formData.get("password") ?? ""), hash);
   if (!ok) {
-    intentos.set("admin", { n: (reg && reg.hasta > ahora ? reg.n : 0) + 1, hasta: ahora + 10 * 60_000 });
+    await registrarFallo("admin");
     return { error: "Contraseña incorrecta" };
   }
   if (!verificarTotp(String(formData.get("totp") ?? ""))) {
-    intentos.set("admin", { n: (reg && reg.hasta > ahora ? reg.n : 0) + 1, hasta: ahora + 10 * 60_000 });
+    await registrarFallo("admin");
     return { error: "Código 2FA incorrecto" };
   }
-  intentos.delete("admin");
+  await limpiarFallos("admin");
   const jar = await cookies();
   jar.set(ADMIN_COOKIE, await crearTokenAdmin(), {
     httpOnly: true,
@@ -61,8 +58,7 @@ export async function guardarProveedorAction(slug: string, formData: FormData): 
   const token = String(formData.get("token") ?? "").trim();
   if (!token && !company.apisperu_token) return { error: "Falta el token", campo: "token" };
   const tokenFinal = token || tokenApisperu(company);
-  const update: Record<string, unknown> = { sunat_provider: proveedor };
-  if (token) update.apisperu_token = cifrar(token);
+  const tokenCifrado = token ? cifrar(token) : null;
 
   let mensaje = "Proveedor actualizado.";
   if (proveedor === "propia") {
@@ -104,8 +100,11 @@ export async function guardarProveedorAction(slug: string, formData: FormData): 
       return { error: `No se pudo consultar la API propia: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
-  const { error } = await supabaseAdmin().from("companies").update(update).eq("id", company.id);
-  if (error) return { error: error.message };
+  try {
+    await query("update companies set sunat_provider = $2, apisperu_token = coalesce($3, apisperu_token) where id = $1", [company.id, proveedor, tokenCifrado]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
   await registrarAuditoria("cambiar_proveedor", slug, { proveedor, tokenActualizado: !!token });
   revalidatePath("/admin");
   revalidatePath(`/admin/${slug}`);
@@ -159,26 +158,39 @@ export async function crearEmpresaAction(_prev: CrearEmpresaState, fd: FormData)
     logoUrl = r.url;
   }
 
-  const { data: creada, error } = await supabaseAdmin().from("companies").insert({
-    slug,
-    password_hash: await hashPassword(password),
-    ruc,
-    razon_social: razonSocial,
-    nombre_comercial: texto(fd, "nombreComercial") || razonSocial,
-    ubigueo: texto(fd, "ubigueo") || "150101",
-    departamento: texto(fd, "departamento") || "LIMA",
-    provincia: texto(fd, "provincia") || "LIMA",
-    distrito: texto(fd, "distrito") || "LIMA",
-    direccion: texto(fd, "direccion"),
-    cod_local: texto(fd, "codLocal") || "0000",
-    apisperu_token: cifrar(token),
-    sunat_provider: proveedor,
-    igv_rate: igv,
-    logo_url: logoUrl,
-  }).select("id").single();
-  if (error) return { error: error.code === "23505" ? "Ya existe una empresa con ese identificador" : error.message, campo: error.code === "23505" ? "slug" : undefined };
+  let creadaId: string;
+  try {
+    const [creada] = await query<{ id: string }>(
+      `insert into companies
+         (slug, password_hash, ruc, razon_social, nombre_comercial, ubigueo, departamento, provincia, distrito,
+          direccion, cod_local, apisperu_token, sunat_provider, igv_rate, logo_url)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       returning id`,
+      [
+        slug,
+        await hashPassword(password),
+        ruc,
+        razonSocial,
+        texto(fd, "nombreComercial") || razonSocial,
+        texto(fd, "ubigueo") || "150101",
+        texto(fd, "departamento") || "LIMA",
+        texto(fd, "provincia") || "LIMA",
+        texto(fd, "distrito") || "LIMA",
+        texto(fd, "direccion"),
+        texto(fd, "codLocal") || "0000",
+        cifrar(token),
+        proveedor,
+        igv,
+        logoUrl,
+      ],
+    );
+    creadaId = creada.id;
+  } catch (e) {
+    const duplicado = (e as { code?: string }).code === "23505";
+    return { error: duplicado ? "Ya existe una empresa con ese identificador" : e instanceof Error ? e.message : String(e), campo: duplicado ? "slug" : undefined };
+  }
   for (const c of corr) {
-    const err = await fijarCorrelativo(creada!.id, c.tipo, c.serie, Number(c.ultimo));
+    const err = await fijarCorrelativo(creadaId, c.tipo, c.serie, Number(c.ultimo));
     if (err) return { error: `Empresa creada, pero falló el correlativo ${c.serie}: ${err}. Corrígelo en su ficha.` };
   }
   if (proveedor === "propia") {
@@ -210,15 +222,18 @@ export async function resetPasswordAction(slug: string, fd: FormData): Promise<{
   if (!(await esAdmin())) return { error: "Sesión admin vencida" };
   const password = String(fd.get("password") ?? "");
   if (password.length < 8) return { error: "La contraseña debe tener al menos 8 caracteres" };
-  const { error } = await supabaseAdmin().from("companies").update({ password_hash: await hashPassword(password) }).eq("slug", slug);
-  if (error) return { error: error.message };
+  try {
+    await query("update companies set password_hash = $2 where slug = $1", [slug, await hashPassword(password)]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
   await registrarAuditoria("reset_password", slug);
   return { ok: true };
 }
 
 export async function toggleActivaAction(slug: string, activa: boolean): Promise<void> {
   if (!(await esAdmin())) return;
-  await supabaseAdmin().from("companies").update({ activa }).eq("slug", slug);
+  await query("update companies set activa = $2 where slug = $1", [slug, activa]);
   await registrarAuditoria(activa ? "reactivar_empresa" : "suspender_empresa", slug);
   revalidatePath("/admin");
   revalidatePath(`/admin/${slug}`);
@@ -229,24 +244,35 @@ export async function toggleActivaAction(slug: string, activa: boolean): Promise
 // ---------------------------------------------------------------------------
 
 const MAX_LOGO_BYTES = 500_000;
-const BUCKET_LOGOS = "logos";
+const CARPETA_LOGOS = "facturacion_sunat";
 
-/** Sube el logo a Supabase Storage (bucket público "logos") y devuelve su URL pública. */
+/** Sube el logo a Cloudinary (carpeta facturacion_sunat) y devuelve su URL pública https. */
 async function subirLogo(slug: string, archivo: File): Promise<{ url?: string; error?: string }> {
   const tipos: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg" };
-  const ext = tipos[archivo.type];
-  if (!ext) return { error: "El logo debe ser PNG o JPG" };
+  if (!tipos[archivo.type]) return { error: "El logo debe ser PNG o JPG" };
   if (archivo.size > MAX_LOGO_BYTES) return { error: "El logo es demasiado grande (máx. 500 KB)" };
-  const storage = supabaseAdmin().storage;
-  const { data: bucket } = await storage.getBucket(BUCKET_LOGOS);
-  if (!bucket) {
-    const { error } = await storage.createBucket(BUCKET_LOGOS, { public: true });
-    if (error) return { error: `No se pudo crear el bucket de logos: ${error.message}` };
+  // Con CLOUDINARY_URL el SDK se configura solo; si no, se usan las tres variables sueltas.
+  if (!process.env.CLOUDINARY_URL) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
   }
-  const ruta = `${slug}-${Date.now()}.${ext}`; // nombre nuevo para evitar caché del anterior
-  const { error } = await storage.from(BUCKET_LOGOS).upload(ruta, Buffer.from(await archivo.arrayBuffer()), { contentType: archivo.type });
-  if (error) return { error: error.message };
-  return { url: storage.from(BUCKET_LOGOS).getPublicUrl(ruta).data.publicUrl };
+  try {
+    const buffer = Buffer.from(await archivo.arrayBuffer());
+    const r = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream({ folder: CARPETA_LOGOS, public_id: `${slug}-${Date.now()}`, resource_type: "image" }, (err, res) =>
+          err || !res ? reject(err ?? new Error("Cloudinary no devolvió respuesta")) : resolve(res),
+        )
+        .end(buffer);
+    });
+    return { url: r.secure_url };
+  } catch (e) {
+    return { error: `No se pudo subir el logo: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 export async function guardarLogoAction(slug: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
@@ -255,8 +281,11 @@ export async function guardarLogoAction(slug: string, fd: FormData): Promise<{ o
   if (!(archivo instanceof File) || archivo.size === 0) return { error: "Selecciona un archivo" };
   const r = await subirLogo(slug, archivo);
   if (!r.url) return { error: r.error };
-  const { error } = await supabaseAdmin().from("companies").update({ logo_url: r.url }).eq("slug", slug);
-  if (error) return { error: error.message };
+  try {
+    await query("update companies set logo_url = $2 where slug = $1", [slug, r.url]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
   await registrarAuditoria("cambiar_logo", slug);
   revalidatePath(`/admin/${slug}`);
   return { ok: true };
@@ -267,10 +296,16 @@ async function fijarCorrelativo(companyId: string, tipo: "01" | "03", serie: str
   const prefijo = tipo === "01" ? "F" : "B";
   if (!new RegExp(`^${prefijo}[A-Z0-9]{3}$`).test(serie)) return `La serie de ${tipo === "01" ? "factura" : "boleta"} debe ser ${prefijo}### (ej. ${prefijo}001)`;
   if (!Number.isInteger(ultimo) || ultimo < 0) return "El último correlativo debe ser un entero ≥ 0";
-  const { error } = await supabaseAdmin()
-    .from("correlativos")
-    .upsert({ company_id: companyId, tipo_doc: tipo, serie, ultimo_correlativo: ultimo }, { onConflict: "company_id,tipo_doc,serie" });
-  return error ? error.message : null;
+  try {
+    await query(
+      `insert into correlativos (company_id, tipo_doc, serie, ultimo_correlativo) values ($1, $2, $3, $4)
+       on conflict (company_id, tipo_doc, serie) do update set ultimo_correlativo = excluded.ultimo_correlativo`,
+      [companyId, tipo, serie, ultimo],
+    );
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
 }
 
 export async function fijarCorrelativoAction(slug: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
@@ -278,7 +313,7 @@ export async function fijarCorrelativoAction(slug: string, fd: FormData): Promis
   const tipo = texto(fd, "tipo") === "01" ? "01" : "03";
   const serie = texto(fd, "serie").toUpperCase();
   const ultimo = Number(texto(fd, "ultimo"));
-  const { data: company } = await supabaseAdmin().from("companies").select("id").eq("slug", slug).maybeSingle();
+  const company = await queryOne<{ id: string }>("select id from companies where slug = $1", [slug]);
   if (!company) return { error: "Empresa no encontrada" };
   const err = await fijarCorrelativo(company.id, tipo, serie, ultimo);
   if (err) return { error: err };

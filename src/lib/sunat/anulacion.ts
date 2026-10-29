@@ -39,7 +39,7 @@ export async function anularComprobante(
         total: comprobante.mto_imp_venta,
         clienteTipo: comprobante.cliente.tipoDoc,
         clienteNumero: comprobante.cliente.numDoc,
-        fechaEmisionBoleta: comprobante.fecha_emision,
+        fechaEmisionBoleta: comprobante.payload?.fechaEmision ?? comprobante.fecha_emision,
         fechaResumen: fecResumen,
         igvRate: Number(company.igv_rate),
       });
@@ -88,7 +88,7 @@ export async function anularComprobante(
         correlativo: comprobante.correlativo,
         correlativoBaja,
         motivo,
-        fechaEmisionFactura: comprobante.fecha_emision,
+        fechaEmisionFactura: comprobante.payload?.fechaEmision ?? comprobante.fecha_emision,
         fechaComunicacion: fecResumen,
       });
       if (resultado.ticket) {

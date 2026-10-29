@@ -3,7 +3,9 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifyPassword } from "@/lib/auth/password";
+import { estaBloqueado, limpiarFallos, registrarFallo } from "@/lib/auth/limite";
 import { crearTokenSesion, sessionCookieName, SESSION_MAX_AGE } from "@/lib/auth/session";
+import { getCompanyFromSession } from "@/lib/auth/current";
 import { companyToEmpresaSunat, getCompanyBySlug } from "@/lib/db/companies";
 import {
   actualizarDatosComprobante,
@@ -28,8 +30,14 @@ export async function loginAction(slug: string, formData: FormData): Promise<{ e
   if (!company) return { error: "Empresa no encontrada" };
   if (!company.activa) return { error: "Empresa suspendida, contacta al administrador" };
 
+  const clave = `empresa:${slug}`;
+  if (await estaBloqueado(clave)) return { error: "Demasiados intentos, espera unos minutos" };
   const valido = await verifyPassword(password, company.password_hash);
-  if (!valido) return { error: "Contraseña incorrecta" };
+  if (!valido) {
+    await registrarFallo(clave);
+    return { error: "Contraseña incorrecta" };
+  }
+  await limpiarFallos(clave);
 
   const token = await crearTokenSesion(company.id, slug);
   const jar = await cookies();
@@ -53,7 +61,7 @@ export async function crearComprobanteAction(
   slug: string,
   formData: FormData,
 ): Promise<{ error?: string; id?: string }> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { error: "Empresa no encontrada" };
 
   const tipoDoc = String(formData.get("tipoDoc")) as TipoDoc;
@@ -114,7 +122,7 @@ export async function crearComprobanteAction(
 }
 
 export async function reintentarAction(slug: string, id: string): Promise<void> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return;
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante || (comprobante.estado !== "pendiente" && comprobante.estado !== "error")) return;
@@ -129,7 +137,7 @@ export async function editarYReintentarAction(
   cliente: ClienteSunat,
   items: ItemInput[],
 ): Promise<{ error?: string }> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { error: "Empresa no encontrada" };
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante || (comprobante.estado !== "pendiente" && comprobante.estado !== "error")) {
@@ -175,7 +183,7 @@ export async function editarYReintentarAction(
 
 /** Detiene el reintento automático (ej. quedó con serie/correlativo erróneo y siempre va a fallar). */
 export async function cancelarReintentoAction(slug: string, id: string): Promise<void> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return;
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante || comprobante.estado !== "pendiente") return;
@@ -188,7 +196,7 @@ export async function anularAction(
   id: string,
   formData: FormData,
 ): Promise<{ error?: string }> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { error: "Empresa no encontrada" };
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante) return { error: "Comprobante no encontrado" };
@@ -203,7 +211,7 @@ export async function prepararCargaAction(
   slug: string,
   formData: FormData,
 ): Promise<{ error?: string; grupos?: GrupoCarga[] }> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { error: "Empresa no encontrada" };
 
   const archivo = formData.get("archivo");
@@ -235,7 +243,7 @@ export async function prepararCargaAction(
 
 /** Crea y emite UN comprobante de la carga masiva. */
 export async function emitirGrupoAction(slug: string, grupo: GrupoCarga): Promise<ResultadoFilaCarga> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { filas: grupo.filasNumeros, estado: "error", mensaje: "Empresa no encontrada" };
   return procesarGrupo(company, grupo);
 }
@@ -245,7 +253,7 @@ export async function reintentarEmisionAction(
   slug: string,
   id: string,
 ): Promise<{ estado: "emitido" | "pendiente" | "error"; mensaje?: string }> {
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { estado: "error", mensaje: "Empresa no encontrada" };
   const comprobante = await obtenerComprobante(company.id, id);
   if (!comprobante) return { estado: "error", mensaje: "Comprobante no encontrado" };
@@ -275,7 +283,7 @@ export async function anularUnoAction(
   motivo: string,
 ): Promise<ResultadoAnulacionMasiva> {
   const etiqueta = ref.codigo ?? ref.id ?? "";
-  const company = await getCompanyBySlug(slug);
+  const company = await getCompanyFromSession(slug);
   if (!company) return { codigo: etiqueta, estado: "error", mensaje: "Empresa no encontrada" };
 
   let comprobante = null;

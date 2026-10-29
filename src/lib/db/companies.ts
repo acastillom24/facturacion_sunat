@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { queryOne } from "@/lib/db/client";
 import type { EmpresaSunat } from "@/lib/sunat/types";
 
 export interface Company {
@@ -23,23 +23,11 @@ export interface Company {
 }
 
 export async function getCompanyBySlug(slug: string): Promise<Company | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("companies")
-    .select("*")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Company | null;
+  return queryOne<Company>("select * from companies where slug = $1", [slug]);
 }
 
 export async function getCompanyById(id: string): Promise<Company | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("companies")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Company | null;
+  return queryOne<Company>("select * from companies where id = $1", [id]);
 }
 
 export function companyToEmpresaSunat(company: Company): EmpresaSunat {

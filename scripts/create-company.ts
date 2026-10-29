@@ -8,12 +8,12 @@
  *     [--ubigueo=150101] [--departamento=LIMA] [--provincia=LIMA] [--distrito=LIMA] [--igvRate=0.18] \
  *     [--logoUrl="https://.../logo.png"]
  *
- * Requiere SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno (.env.local).
+ * Requiere DATABASE_URL en el entorno (.env.local).
  */
 import { config } from "dotenv";
 import bcrypt from "bcryptjs";
 import { cifrar } from "../src/lib/crypto/secretos";
-import { supabaseAdmin } from "../src/lib/supabase/admin";
+import { query, queryOne } from "../src/lib/db/client";
 
 config({ path: ".env.local" });
 
@@ -35,13 +35,12 @@ async function main() {
     process.exit(1);
   }
 
-  const db = supabaseAdmin();
   const passwordHash = await bcrypt.hash(args.password, 12);
 
   // Si la empresa ya existe, los campos opcionales no indicados en esta
   // corrida conservan su valor anterior (en vez de resetearse), para poder
   // re-ejecutar el script solo para cambiar la contraseña sin borrar el resto.
-  const { data: existente } = await db.from("companies").select("*").eq("slug", args.slug).maybeSingle();
+  const existente = await queryOne<Record<string, any>>("select * from companies where slug = $1", [args.slug]);
 
   const row = {
     slug: args.slug,
@@ -60,9 +59,23 @@ async function main() {
     logo_url: args.logoUrl ?? existente?.logo_url ?? null,
   };
 
-  const { error } = await db.from("companies").upsert(row, { onConflict: "slug" });
-  if (error) {
-    console.error("Error creando/actualizando la empresa:", error.message);
+  try {
+    await query(
+      `insert into companies
+         (slug, password_hash, ruc, razon_social, nombre_comercial, ubigueo, departamento, provincia, distrito,
+          direccion, cod_local, apisperu_token, igv_rate, logo_url)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       on conflict (slug) do update set
+         password_hash = excluded.password_hash, ruc = excluded.ruc, razon_social = excluded.razon_social,
+         nombre_comercial = excluded.nombre_comercial, ubigueo = excluded.ubigueo, departamento = excluded.departamento,
+         provincia = excluded.provincia, distrito = excluded.distrito, direccion = excluded.direccion,
+         cod_local = excluded.cod_local, apisperu_token = excluded.apisperu_token, igv_rate = excluded.igv_rate,
+         logo_url = excluded.logo_url`,
+      [row.slug, row.password_hash, row.ruc, row.razon_social, row.nombre_comercial, row.ubigueo, row.departamento,
+        row.provincia, row.distrito, row.direccion, row.cod_local, row.apisperu_token, row.igv_rate, row.logo_url],
+    );
+  } catch (e) {
+    console.error("Error creando/actualizando la empresa:", e instanceof Error ? e.message : e);
     process.exit(1);
   }
 

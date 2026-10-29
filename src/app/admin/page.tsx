@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/admin";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/db/client";
 import { tokenApisperu } from "@/lib/sunat/apiPropia";
 import { estadoEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
 import { adminLogoutAction } from "./actions";
@@ -9,11 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   await requireAdmin();
-  const { data, error } = await supabaseAdmin()
-    .from("companies")
-    .select("slug, ruc, razon_social, sunat_provider, activa, apisperu_token")
-    .order("razon_social");
-  if (error) throw error;
+  const data = await query<{ slug: string; ruc: string; razon_social: string; sunat_provider: string; activa: boolean; apisperu_token: string | null }>(
+    "select slug, ruc, razon_social, sunat_provider, activa, apisperu_token from companies order by razon_social",
+  );
 
   // Vencimiento del certificado (solo empresas en API propia), en paralelo y tolerante a fallos.
   const certs = new Map<string, { vence?: string; dias?: number; error?: boolean }>();

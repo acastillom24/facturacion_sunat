@@ -6,10 +6,10 @@
  *   npm run set-correlativo -- --slug=lechic --tipo=03 --serie=B001 --ultimo=5838
  *   npm run set-correlativo -- --slug=lechic --tipo=01 --serie=F001 --ultimo=57
  *
- * Requiere SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno (.env.local).
+ * Requiere DATABASE_URL en el entorno (.env.local).
  */
 import { config } from "dotenv";
-import { supabaseAdmin } from "../src/lib/supabase/admin";
+import { query, queryOne } from "../src/lib/db/client";
 
 config({ path: ".env.local" });
 
@@ -30,21 +30,20 @@ async function main() {
     process.exit(1);
   }
 
-  const db = supabaseAdmin();
-  const { data: company } = await db.from("companies").select("id").eq("slug", args.slug).maybeSingle();
+  const company = await queryOne<{ id: string }>("select id from companies where slug = $1", [args.slug]);
   if (!company) {
     console.error(`Empresa "${args.slug}" no encontrada`);
     process.exit(1);
   }
 
-  const { error } = await db
-    .from("correlativos")
-    .upsert(
-      { company_id: company.id, tipo_doc: args.tipo, serie: args.serie, ultimo_correlativo: ultimo },
-      { onConflict: "company_id,tipo_doc,serie" },
+  try {
+    await query(
+      `insert into correlativos (company_id, tipo_doc, serie, ultimo_correlativo) values ($1, $2, $3, $4)
+       on conflict (company_id, tipo_doc, serie) do update set ultimo_correlativo = excluded.ultimo_correlativo`,
+      [company.id, args.tipo, args.serie, ultimo],
     );
-  if (error) {
-    console.error("Error:", error.message);
+  } catch (e) {
+    console.error("Error:", e instanceof Error ? e.message : e);
     process.exit(1);
   }
   console.log(`${args.serie}: el siguiente comprobante será ${args.serie}-${ultimo + 1}`);

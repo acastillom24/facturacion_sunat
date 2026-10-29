@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { json, query, queryOne } from "@/lib/db/client";
 import type { ClienteSunat, ComprobantePayload, ItemInput, SunatCdrResponse, TipoDoc } from "@/lib/sunat/types";
 
 export type EstadoComprobante =
@@ -64,30 +64,30 @@ export async function crearComprobantePendiente(input: {
   items: ItemInput[];
   payload: ComprobantePayload;
 }): Promise<ComprobanteReintentable> {
-  // Solo pedimos "id" de vuelta: el resto de los datos (payload, intentos=0)
-  // ya los tenemos en memoria, no hace falta que Supabase nos los reenvíe.
-  const { data, error } = await supabaseAdmin()
-    .from("comprobantes")
-    .insert({
-      company_id: input.companyId,
-      tipo_doc: input.tipoDoc,
-      serie: input.serie,
-      correlativo: input.correlativo,
-      moneda: input.moneda,
-      forma_pago: input.formaPago,
-      cliente: input.cliente,
-      items: input.items,
-      mto_oper_gravadas: input.payload.mtoOperGravadas,
-      mto_igv: input.payload.mtoIGV,
-      mto_imp_venta: input.payload.mtoImpVenta,
-      payload: input.payload,
-      estado: "pendiente",
-      fecha_emision: input.payload.fechaEmision,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return { id: data.id as string, payload: input.payload, intentos: 0 };
+  // Solo pedimos "id" de vuelta: el resto de los datos (payload, intentos=0) ya los tenemos en memoria.
+  const [fila] = await query<{ id: string }>(
+    `insert into comprobantes
+       (company_id, tipo_doc, serie, correlativo, moneda, forma_pago, cliente, items,
+        mto_oper_gravadas, mto_igv, mto_imp_venta, payload, estado, fecha_emision)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb, 'pendiente', $13)
+     returning id`,
+    [
+      input.companyId,
+      input.tipoDoc,
+      input.serie,
+      input.correlativo,
+      input.moneda,
+      input.formaPago,
+      json(input.cliente),
+      json(input.items),
+      input.payload.mtoOperGravadas,
+      input.payload.mtoIGV,
+      input.payload.mtoImpVenta,
+      json(input.payload),
+      input.payload.fechaEmision,
+    ],
+  );
+  return { id: fila.id, payload: input.payload, intentos: 0 };
 }
 
 export interface FiltrosComprobantes {
@@ -118,35 +118,35 @@ export async function listarComprobantes(
   filtros: FiltrosComprobantes = {},
   limit = 200,
 ): Promise<ComprobanteResumen[]> {
-  let query = supabaseAdmin().from("comprobantes").select(COLUMNAS_RESUMEN).eq("company_id", companyId);
+  const params: unknown[] = [companyId];
+  let sql = `select ${COLUMNAS_RESUMEN} from comprobantes where company_id = $1`;
 
-  if (filtros.desde) query = query.gte("fecha_emision", `${filtros.desde}T00:00:00-05:00`);
+  if (filtros.desde) {
+    params.push(`${filtros.desde}T00:00:00-05:00`);
+    sql += ` and fecha_emision >= $${params.length}`;
+  }
   if (filtros.hasta) {
     const finDia = new Date(new Date(`${filtros.hasta}T00:00:00-05:00`).getTime() + 24 * 60 * 60 * 1000);
-    query = query.lt("fecha_emision", finDia.toISOString());
+    params.push(finDia.toISOString());
+    sql += ` and fecha_emision < $${params.length}`;
   }
 
   const numero = filtros.numero?.trim();
   if (numero) {
     // Acepta "25", "B001-25" o "B001-000025": se compara el correlativo como número.
     const soloDigitos = numero.match(/(\d+)\s*$/)?.[1];
-    if (soloDigitos) query = query.eq("correlativo", Number(soloDigitos));
+    if (soloDigitos) {
+      params.push(Number(soloDigitos));
+      sql += ` and correlativo = $${params.length}`;
+    }
   }
 
-  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
-  if (error) throw error;
-  return (data ?? []) as unknown as ComprobanteResumen[];
+  params.push(limit);
+  return query<ComprobanteResumen>(`${sql} order by created_at desc limit $${params.length}`, params);
 }
 
 export async function obtenerComprobante(companyId: string, id: string): Promise<Comprobante | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("comprobantes")
-    .select("*")
-    .eq("company_id", companyId)
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Comprobante | null;
+  return queryOne<Comprobante>("select * from comprobantes where company_id = $1 and id = $2", [companyId, id]);
 }
 
 export async function buscarComprobantePorNumero(
@@ -154,15 +154,10 @@ export async function buscarComprobantePorNumero(
   serie: string,
   correlativo: number,
 ): Promise<Comprobante | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("comprobantes")
-    .select("*")
-    .eq("company_id", companyId)
-    .eq("serie", serie)
-    .eq("correlativo", correlativo)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Comprobante | null;
+  return queryOne<Comprobante>(
+    "select * from comprobantes where company_id = $1 and serie = $2 and correlativo = $3 limit 1",
+    [companyId, serie, correlativo],
+  );
 }
 
 /** Reemplaza los datos a enviar de un comprobante aún no emitido (corrección manual antes de reintentar). */
@@ -171,19 +166,12 @@ export async function actualizarDatosComprobante(
   datos: { cliente: ClienteSunat; items: ItemInput[]; payload: ComprobantePayload },
 ): Promise<void> {
   const { cliente, items, payload } = datos;
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      cliente,
-      items,
-      payload,
-      mto_oper_gravadas: payload.mtoOperGravadas,
-      mto_igv: payload.mtoIGV,
-      mto_imp_venta: payload.mtoImpVenta,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query(
+    `update comprobantes set cliente = $2::jsonb, items = $3::jsonb, payload = $4::jsonb,
+       mto_oper_gravadas = $5, mto_igv = $6, mto_imp_venta = $7, updated_at = now()
+     where id = $1`,
+    [id, json(cliente), json(items), json(payload), payload.mtoOperGravadas, payload.mtoIGV, payload.mtoImpVenta],
+  );
 }
 
 export async function marcarEmitido(
@@ -192,31 +180,19 @@ export async function marcarEmitido(
   hash?: string,
   proveedor?: "apisperu" | "propia",
 ): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      estado: "emitido",
-      sunat_response: sunatResponse,
-      hash: hash ?? null,
-      ...(proveedor ? { sunat_provider: proveedor } : {}),
-      proximo_intento_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query(
+    `update comprobantes set estado = 'emitido', sunat_response = $2::jsonb, hash = $3,
+       sunat_provider = coalesce($4, sunat_provider), proximo_intento_at = null, updated_at = now()
+     where id = $1`,
+    [id, json(sunatResponse), hash ?? null, proveedor ?? null],
+  );
 }
 
 export async function marcarRechazado(id: string, sunatResponse: SunatCdrResponse): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      estado: "rechazado",
-      sunat_response: sunatResponse,
-      proximo_intento_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query(
+    "update comprobantes set estado = 'rechazado', sunat_response = $2::jsonb, proximo_intento_at = null, updated_at = now() where id = $1",
+    [id, json(sunatResponse)],
+  );
 }
 
 /** Falla transitoria: reintentar en 1 hora. */
@@ -226,68 +202,33 @@ export async function marcarErrorConReintento(
   intentosActuales: number,
 ): Promise<void> {
   const proximoIntento = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      estado: "pendiente",
-      sunat_response: sunatResponse,
-      intentos: intentosActuales + 1,
-      proximo_intento_at: proximoIntento,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query(
+    `update comprobantes set estado = 'pendiente', sunat_response = $2::jsonb, intentos = $3,
+       proximo_intento_at = $4, updated_at = now()
+     where id = $1`,
+    [id, json(sunatResponse), intentosActuales + 1, proximoIntento],
+  );
 }
 
 export async function marcarErrorDefinitivo(id: string, sunatResponse: SunatCdrResponse | null): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      estado: "error",
-      sunat_response: sunatResponse,
-      proximo_intento_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query(
+    "update comprobantes set estado = 'error', sunat_response = $2::jsonb, proximo_intento_at = null, updated_at = now() where id = $1",
+    [id, json(sunatResponse)],
+  );
 }
 
 /** El usuario decide no seguir reintentando (ej. la serie/correlativo quedó mal). Detiene el cron para este comprobante. */
 export async function marcarCancelado(id: string): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({
-      estado: "cancelado",
-      proximo_intento_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw error;
+  await query("update comprobantes set estado = 'cancelado', proximo_intento_at = null, updated_at = now() where id = $1", [id]);
 }
 
-export async function marcarAnulando(id: string, anulacion: Anulacion): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({ estado: "anulando", anulacion, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
+async function actualizarAnulacion(id: string, estado: EstadoComprobante, anulacion: Anulacion): Promise<void> {
+  await query("update comprobantes set estado = $2, anulacion = $3::jsonb, updated_at = now() where id = $1", [id, estado, json(anulacion)]);
 }
 
-export async function marcarAnulado(id: string, anulacion: Anulacion): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({ estado: "anulado", anulacion, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
-}
-
-export async function marcarErrorAnulacion(id: string, anulacion: Anulacion): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("comprobantes")
-    .update({ estado: "error_anulacion", anulacion, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
-}
+export const marcarAnulando = (id: string, anulacion: Anulacion) => actualizarAnulacion(id, "anulando", anulacion);
+export const marcarAnulado = (id: string, anulacion: Anulacion) => actualizarAnulacion(id, "anulado", anulacion);
+export const marcarErrorAnulacion = (id: string, anulacion: Anulacion) => actualizarAnulacion(id, "error_anulacion", anulacion);
 
 export interface PendienteReintento extends ComprobanteReintentable {
   company_id: string;
@@ -299,16 +240,12 @@ export interface PendienteReintento extends ComprobanteReintentable {
  * sunat_response, anulacion, etc., que no hacen falta para reintentar.
  */
 export async function listarPendientesParaReintento(limit = 25): Promise<PendienteReintento[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("comprobantes")
-    .select("id, company_id, payload, intentos")
-    .eq("estado", "pendiente")
-    .not("proximo_intento_at", "is", null)
-    .lte("proximo_intento_at", new Date().toISOString())
-    .order("proximo_intento_at", { ascending: true })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as unknown as PendienteReintento[];
+  return query<PendienteReintento>(
+    `select id, company_id, payload, intentos from comprobantes
+     where estado = 'pendiente' and proximo_intento_at is not null and proximo_intento_at <= now()
+     order by proximo_intento_at asc limit $1`,
+    [limit],
+  );
 }
 
 /**
@@ -319,17 +256,18 @@ export async function listarPendientesParaReintento(limit = 25): Promise<Pendien
  */
 export async function recuperarAnulacionesAtascadas(minutos = 2, companyId?: string): Promise<number> {
   const limite = new Date(Date.now() - minutos * 60 * 1000).toISOString();
-  let query = supabaseAdmin().from("comprobantes").select("id, anulacion").eq("estado", "anulando").lt("updated_at", limite);
-  if (companyId) query = query.eq("company_id", companyId);
-  const { data, error } = await query;
-  if (error) throw error;
+  const filas = await query<{ id: string; anulacion: Anulacion | null }>(
+    `select id, anulacion from comprobantes
+     where estado = 'anulando' and updated_at < $1 and ($2::uuid is null or company_id = $2::uuid)`,
+    [limite, companyId ?? null],
+  );
 
-  for (const fila of (data ?? []) as { id: string; anulacion: Anulacion | null }[]) {
+  for (const fila of filas) {
     await marcarErrorAnulacion(fila.id, {
       ...(fila.anulacion ?? { fecResumen: new Date().toISOString() }),
       estado: "rechazado",
       resultado: { error: { message: `La anulación quedó sin respuesta por más de ${minutos} minutos` } },
     });
   }
-  return data?.length ?? 0;
+  return filas.length;
 }
