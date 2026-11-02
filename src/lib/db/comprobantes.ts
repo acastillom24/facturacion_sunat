@@ -222,6 +222,23 @@ export async function marcarCancelado(id: string): Promise<void> {
   await query("update comprobantes set estado = 'cancelado', proximo_intento_at = null, updated_at = now() where id = $1", [id]);
 }
 
+/**
+ * Cancela en lote los reintentos de los comprobantes que sigan pendientes. El filtro por estado
+ * hace el cambio atómico: si el cron lo emitió justo antes, no se toca. Devuelve los cancelados.
+ */
+export async function cancelarPendientes(
+  companyId: string,
+  ids: string[],
+): Promise<{ id: string; serie: string; correlativo: number }[]> {
+  if (ids.length === 0) return [];
+  return query<{ id: string; serie: string; correlativo: number }>(
+    `update comprobantes set estado = 'cancelado', proximo_intento_at = null, updated_at = now()
+     where company_id = $1 and id = any($2::uuid[]) and estado = 'pendiente'
+     returning id, serie, correlativo`,
+    [companyId, ids],
+  );
+}
+
 async function actualizarAnulacion(id: string, estado: EstadoComprobante, anulacion: Anulacion): Promise<void> {
   await query("update comprobantes set estado = $2, anulacion = $3::jsonb, updated_at = now() where id = $1", [id, estado, json(anulacion)]);
 }

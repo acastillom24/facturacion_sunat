@@ -11,11 +11,12 @@ import {
   actualizarDatosComprobante,
   crearComprobantePendiente,
   buscarComprobantePorNumero,
+  cancelarPendientes,
   marcarCancelado,
   obtenerComprobante,
 } from "@/lib/db/comprobantes";
 import { siguienteCorrelativo } from "@/lib/db/correlativos";
-import { mensajeExcedeLimite } from "@/lib/limites";
+import { MAX_COMPROBANTES_POR_LOTE, mensajeExcedeLimite } from "@/lib/limites";
 import { leerFilasCargaMasiva } from "@/lib/excel/plantilla";
 import { anularComprobante } from "@/lib/sunat/anulacion";
 import { construirPayload } from "@/lib/sunat/apisperu";
@@ -189,6 +190,21 @@ export async function cancelarReintentoAction(slug: string, id: string): Promise
   if (!comprobante || comprobante.estado !== "pendiente") return;
   await marcarCancelado(comprobante.id);
   redirect(`/${slug}/comprobantes/${id}`);
+}
+
+/** Cancela en lote los reintentos de los comprobantes seleccionados que sigan pendientes (los demás se ignoran). */
+export async function cancelarPendientesAction(
+  slug: string,
+  ids: string[],
+): Promise<{ error?: string; cancelados?: number }> {
+  const company = await getCompanyFromSession(slug);
+  if (!company) return { error: "Empresa no encontrada" };
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) return { error: "Selección inválida" };
+  if (ids.length > MAX_COMPROBANTES_POR_LOTE) {
+    return { error: mensajeExcedeLimite(ids.length, MAX_COMPROBANTES_POR_LOTE, `seleccionaste ${ids.length} comprobantes`) };
+  }
+  const cancelados = await cancelarPendientes(company.id, ids);
+  return { cancelados: cancelados.length };
 }
 
 export async function anularAction(

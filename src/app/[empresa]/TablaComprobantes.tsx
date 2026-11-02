@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { MAX_COMPROBANTES_POR_LOTE, mensajeExcedeLimite } from "@/lib/limites";
 import type { ProgresoLote } from "@/lib/lote";
-import type { ResultadoAnulacionMasiva } from "./actions";
+import { cancelarPendientesAction, type ResultadoAnulacionMasiva } from "./actions";
 import { anularLote } from "./anularLote";
 import { BarraProgreso } from "./BarraProgreso";
 
@@ -16,6 +16,7 @@ export interface FilaComprobante {
   documento: string;
   cliente: string;
   total: string;
+  estado: string;
   estadoLabel: string;
   estadoClass: string;
   fecha: string;
@@ -39,8 +40,11 @@ export function TablaComprobantes({
   const [progreso, setProgreso] = useState<ProgresoLote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultados, setResultados] = useState<ResultadoAnulacionMasiva[] | null>(null);
+  const [confirmandoCancelar, setConfirmandoCancelar] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const todos = filas.length > 0 && filas.every((f) => sel.has(f.id));
+  const pendientesSel = filas.filter((f) => sel.has(f.id) && f.estado === "pendiente").map((f) => f.id);
   const alternar = (id: string) =>
     setSel((prev) => {
       const n = new Set(prev);
@@ -104,6 +108,32 @@ export function TablaComprobantes({
     router.refresh();
   }
 
+  async function cancelarPendientes() {
+    setConfirmandoCancelar(false);
+    setError(null);
+    setAviso(null);
+    setTrabajando(true);
+    try {
+      const r = await cancelarPendientesAction(slug, pendientesSel);
+      if (r.error) {
+        setError(r.error);
+        return;
+      }
+      const n = r.cancelados ?? 0;
+      const omitidos = pendientesSel.length - n;
+      setAviso(
+        `${n} reintento(s) cancelado(s).` +
+          (omitidos > 0 ? ` ${omitidos} ya no estaban pendientes (se emitieron o cambiaron de estado) y no se tocaron.` : ""),
+      );
+      setSel(new Set());
+      router.refresh();
+    } catch {
+      setError("No se pudieron cancelar los pendientes");
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
   return (
     <div className="mt-3 space-y-3">
       {sel.size > 0 && (
@@ -123,12 +153,33 @@ export function TablaComprobantes({
           >
             Anular
           </button>
-          <button onClick={() => setSel(new Set())} className="text-neutral-500 hover:underline">
-            Limpiar
+          {pendientesSel.length > 0 && (
+            <button
+              onClick={() => setConfirmandoCancelar(true)}
+              disabled={trabajando}
+              className="rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+            >
+              Cancelar pendientes ({pendientesSel.length})
+            </button>
+          )}
+          <button
+            onClick={() => setSel(new Set())}
+            disabled={trabajando}
+            className="ml-auto rounded-md border border-indigo-300 bg-white px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+          >
+            ✕ Quitar selección
           </button>
         </div>
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {aviso && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          <p>{aviso}</p>
+          <button onClick={() => setAviso(null)} className="text-emerald-600 hover:text-emerald-900">
+            Cerrar
+          </button>
+        </div>
+      )}
       {progreso && <BarraProgreso progreso={progreso} verbo="Anulando" hecho="anulados" onCancelar={() => (cancelRef.current = true)} />}
       {resultados && (
         <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm shadow-sm">
@@ -217,6 +268,32 @@ export function TablaComprobantes({
               </button>
               <button onClick={anular} className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-600">
                 Sí, anular
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmandoCancelar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="font-semibold text-neutral-900">¿Cancelar los pendientes?</h3>
+            <p className="mt-2 text-sm text-neutral-600">
+              Se cancelarán {pendientesSel.length} comprobante(s) pendiente(s) y ya no se volverá a intentar emitirlos.
+              {sel.size > pendientesSel.length && " Los demás seleccionados no se modifican."}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmandoCancelar(false)}
+                className="rounded-md px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-100"
+              >
+                Volver
+              </button>
+              <button
+                onClick={cancelarPendientes}
+                className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+              >
+                Sí, cancelar
               </button>
             </div>
           </div>

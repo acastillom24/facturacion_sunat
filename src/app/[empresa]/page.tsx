@@ -103,6 +103,7 @@ export default async function DashboardPage({
             documento: `${c.tipo_doc === "01" ? "Factura" : "Boleta"} ${c.serie}-${String(c.correlativo).padStart(6, "0")}`,
             cliente: c.cliente.rznSocial,
             total: `${c.moneda === "PEN" ? "S/" : "$"} ${c.mto_imp_venta.toFixed(2)}`,
+            estado: c.estado,
             estadoLabel: ESTADO_LABEL[c.estado] ?? c.estado,
             estadoClass: ESTADO_CLASS[c.estado] ?? "",
             fecha: new Date(c.created_at).toLocaleString("es-PE", { timeZone: "America/Lima" }),
