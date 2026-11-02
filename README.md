@@ -4,7 +4,7 @@ Aplicación web (Next.js + Neon) para emitir y anular boletas/facturas
 electrónicas, con soporte multi-empresa y dos proveedores de emisión
 (configurables por empresa): [APIsPERU](https://apisperu.com/) o una API propia
 de SUNAT (repo `apis`). Incluye un panel de administración (`/admin`) para
-gestionar empresas y API keys.
+gestionar empresas, API keys y planes.
 cada empresa tiene su propia URL (`/nombre-empresa`) y su propia contraseña,
 de forma que puedes tener sesiones simultáneas de distintas empresas en
 distintas pestañas del navegador.
@@ -60,6 +60,12 @@ por subdominio dedicado. Permite:
   límite (marca revocadas y vencidas), crear (la key completa se muestra una
   sola vez; se crean con producto `sunat`), editar límites y vencimiento, y
   revocar o restaurar.
+- **Planes** (`/admin/planes`): asignar a cada cliente (dueño de keys) un plan
+  del catálogo de la API de SUNAT (Básico, Pro, Empresarial), con límite
+  mensual opcional distinto al del catálogo y vencimiento. Con plan, todas las
+  keys del cliente comparten esa cuota (además de los límites de cada key); sin
+  plan, rigen solo los límites de cada key. **Si el plan vence, la API aplica el
+  plan gratis (20/mes)**: para volver a los límites de las keys, quitar el plan.
 - Cada acción verifica la sesión admin y queda registrada en una auditoría.
 
 ### Validaciones de cliente (individuales y en la carga masiva)
@@ -83,9 +89,9 @@ tanto al formulario individual como a cada fila de la carga masiva.
 ## Estructura relevante
 
 ```
-src/lib/sunat/        Clientes APIsPERU y API propia (emitir, anular, PDF, ticket, API keys)
+src/lib/sunat/        Clientes APIsPERU y API propia (emitir, anular, PDF, ticket, API keys, planes)
 src/lib/crypto/       Cifrado de los tokens de empresa
-src/app/admin/        Panel de administración (empresas y API keys)
+src/app/admin/        Panel de administración (empresas, API keys y planes)
 src/lib/db/           Acceso a Neon (companies, correlativos, comprobantes)
 src/lib/auth/         Sesión por empresa (cookie JWT, una cookie por slug) y hash de password
 src/app/[empresa]/    UI: login, dashboard/historial, nuevo comprobante, detalle
