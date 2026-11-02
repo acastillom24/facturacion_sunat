@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/admin";
 import { query } from "@/lib/db/client";
+import { diasHasta } from "@/lib/fechas";
 import { tokenApisperu } from "@/lib/sunat/apiPropia";
 import { estadoEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
 import { adminLogoutAction } from "./actions";
@@ -23,7 +24,7 @@ export default async function AdminPage() {
           const cert = (await estadoEmpresaPropia(c.ruc, tokenApisperu(c)))?.certificado;
           if (!cert) return certs.set(c.slug, {});
           const vence = cert.valido_hasta.slice(0, 10);
-          certs.set(c.slug, { vence, dias: Math.floor((new Date(vence).getTime() - Date.now()) / 86_400_000) });
+          certs.set(c.slug, { vence, dias: diasHasta(vence) });
         } catch {
           certs.set(c.slug, { error: true });
         }
