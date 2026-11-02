@@ -65,7 +65,14 @@ export default async function PlanesPage() {
                       {d.email}
                       {d.name && <div className="text-xs text-neutral-400">{d.name}</div>}
                     </td>
-                    <td className="p-3">{d.keys}</td>
+                    <td className="p-3">
+                      {d.keys.length}
+                      {d.keys.map((k) => (
+                        <div key={k.id} className="text-xs text-neutral-400">
+                          {k.name} {k.prefix}…
+                        </div>
+                      ))}
+                    </td>
                     <td className="p-3">
                       {s ? (
                         <>

@@ -22,11 +22,21 @@ export type SuscripcionDueno = {
   expired: boolean;
 };
 
+export type KeyDueno = {
+  id: string;
+  prefix: string;
+  name: string;
+  product: string;
+  monthlyLimit: number | null;
+  dailyLimit: number | null;
+  expiresAt: string | null;
+};
+
 export type DuenoPlan = {
   email: string;
   name: string | null;
-  /** Keys activas del dueño que llegan a SUNAT. */
-  keys: number;
+  /** Keys activas y no vencidas del dueño que llegan a SUNAT (producto sunat o all). */
+  keys: KeyDueno[];
   subscription: SuscripcionDueno | null;
   /** Consumo del mes contra la cuota del plan. */
   usedMonth: number;
