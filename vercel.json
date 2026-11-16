@@ -1,8 +1,16 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/reintentos",
-      "schedule": "0 12 * * *"
+      "schedule": "0 13,17,23 * * *"
     }
   ]
 }

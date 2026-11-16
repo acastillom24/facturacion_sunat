@@ -5,9 +5,10 @@ import { intentarEmitir } from "@/lib/sunat/emision";
 
 /**
  * Reintenta comprobantes cuya emisión falló y cuyo `proximo_intento_at` ya venció.
- * Protegido con CRON_SECRET: lo llama Vercel Cron (ver vercel.json) o, en el
- * plan gratuito de Vercel (cron limitado a 1 vez/día), un scheduler externo
- * como cron-job.org apuntando aquí cada hora con el header Authorization.
+ * Protegido con CRON_SECRET: lo llama Vercel Cron (ver vercel.json) a las 8:00,
+ * 12:00 y 18:00 hora de Lima (13:00, 17:00 y 23:00 UTC; Vercel usa UTC).
+ * En el plan gratuito el cron se limita a 1 vez/día: ahí haría falta un scheduler
+ * externo como cron-job.org apuntando aquí con el header Authorization.
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
