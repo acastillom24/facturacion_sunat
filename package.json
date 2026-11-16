@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "create-company": "tsx scripts/create-company.ts",
-    "set-correlativo": "tsx scripts/set-correlativo.ts"
+    "set-correlativo": "tsx scripts/set-correlativo.ts",
+    "sync-logos": "tsx scripts/sync-logos.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

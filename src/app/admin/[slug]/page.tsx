@@ -8,6 +8,7 @@ import { ControlesEmpresa } from "./ControlesEmpresa";
 import { query } from "@/lib/db/client";
 import { CorrelativosForm, LogoForm } from "./LogoYCorrelativos";
 import { ProveedorForm } from "./ProveedorForm";
+import { Badge, Mensaje } from "@/components/admin/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -30,69 +31,57 @@ export default async function AdminEmpresaPage({ params }: { params: Promise<{ s
     errorApi = e instanceof Error ? e.message : String(e);
   }
 
+  const propia = company.sunat_provider === "propia";
+  const cert = estado?.certificado;
+  const certResumen = cert ? `${cert.vencido ? "Vencido" : "Vigente"} · vence ${cert.valido_hasta.slice(0, 10)}` : null;
+
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link href="/admin" className="text-sm text-indigo-600 hover:underline">
-        ← Empresas
-      </Link>
-      <h1 className="mt-2 text-lg font-semibold text-neutral-900">{company.razon_social}</h1>
-      <p className="text-sm text-neutral-500">RUC {company.ruc} · /{company.slug}</p>
-
-      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">Proveedor de emisión</h2>
-        <ProveedorForm
-          slug={slug}
-          actual={company.sunat_provider}
-          tieneToken={!!company.apisperu_token}
-          ambienteActual={estado?.ambiente ?? "beta"}
-          solUsuarioActual={estado?.sol_usuario ?? ""}
-        />
-      </section>
-
-      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">
-          Acceso {company.activa ? "" : <span className="text-red-600">(SUSPENDIDA)</span>}
-        </h2>
-        <ControlesEmpresa slug={slug} activa={company.activa} />
-      </section>
-
-      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">Logo</h2>
-        <LogoForm slug={slug} logoUrl={company.logo_url} />
-      </section>
-
-      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">Correlativos</h2>
-        <CorrelativosForm slug={slug} series={series ?? []} />
-      </section>
-
-      {company.sunat_provider === "propia" && (
-      <section className="mt-6">
-        <h2 className="text-sm font-semibold text-neutral-700">Estado en la API propia</h2>
-        {errorApi && <p className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-700">No se pudo consultar la API: {errorApi}</p>}
-        {(
-          <>
-            <p className="mt-2 rounded-xl border border-neutral-200 bg-white p-4 text-sm text-neutral-700 shadow-sm">
-              {estado ? (
-                <>
-                  Ambiente: <b>{estado.ambiente === "produccion" ? "Producción" : "Beta"}</b> · SOL: {estado.sol_usuario ?? "—"} (clave{" "}
-                  {estado.tiene_sol_clave ? "guardada" : "no cargada"}) · Certificado:{" "}
-                  {estado.certificado
-                    ? `${estado.certificado.titular}, vence ${estado.certificado.valido_hasta.slice(0, 10)}${estado.certificado.vencido ? " (VENCIDO)" : ""}`
-                    : "no cargado"}
-                  <br />
-                  <span className={estado.listo_para_produccion ? "text-emerald-700" : "text-amber-700"}>
-                    {estado.listo_para_produccion ? "Lista para producción." : `Falta: ${estado.faltantes_para_produccion.join(", ")}`}
-                  </span>
-                </>
-              ) : (
-                "Empresa aún no registrada en la API; se creará al guardar."
-              )}
-            </p>
-          </>
+    <main className="mx-auto max-w-2xl space-y-6 px-4 py-8">
+      <div>
+        <Link href="/admin" className="text-sm text-indigo-600 hover:underline">
+          ← Empresas
+        </Link>
+        <h1 className="mt-2 text-xl font-semibold text-neutral-900">{company.razon_social}</h1>
+        <p className="text-sm text-neutral-500">RUC {company.ruc} · /{company.slug}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Badge tono={company.activa ? "ok" : "error"}>{company.activa ? "Activa" : "Suspendida"}</Badge>
+          <Badge tono={propia ? "ok" : "neutro"}>{propia ? "API propia" : "APIsPERU"}</Badge>
+          {propia && estado && (
+            <>
+              <Badge tono={estado.ambiente === "produccion" ? "ok" : "aviso"}>{estado.ambiente === "produccion" ? "Producción" : "Beta"}</Badge>
+              <Badge tono={estado.listo_para_produccion ? "ok" : "aviso"}>
+                {estado.listo_para_produccion ? "Lista para producción" : `Falta: ${estado.faltantes_para_produccion.join(", ")}`}
+              </Badge>
+            </>
+          )}
+        </div>
+        {propia && errorApi && (
+          <div className="mt-3">
+            <Mensaje tono="error">No se pudo consultar la API: {errorApi}</Mensaje>
+          </div>
         )}
-      </section>
-      )}
+        {propia && !errorApi && !estado && (
+          <div className="mt-3">
+            <Mensaje tono="aviso">La empresa aún no está registrada en la API; se creará al guardar el proveedor.</Mensaje>
+          </div>
+        )}
+      </div>
+
+      <ProveedorForm
+        slug={slug}
+        actual={company.sunat_provider}
+        tieneToken={!!company.apisperu_token}
+        ambienteActual={estado?.ambiente ?? "beta"}
+        solUsuarioActual={estado?.sol_usuario ?? ""}
+        tieneSolClave={estado?.tiene_sol_clave ?? false}
+        certificadoResumen={certResumen}
+      />
+
+      <LogoForm slug={slug} logoUrl={company.logo_url} enApi={propia && estado ? estado.tiene_logo : null} />
+
+      <CorrelativosForm slug={slug} series={series ?? []} />
+
+      <ControlesEmpresa slug={slug} activa={company.activa} />
     </main>
   );
 }

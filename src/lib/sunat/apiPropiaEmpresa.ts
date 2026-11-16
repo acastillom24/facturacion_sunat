@@ -7,6 +7,7 @@ export interface EstadoEmpresaPropia {
   sol_usuario: string | null;
   tiene_sol_clave: boolean;
   certificado: { titular: string; valido_hasta: string; vencido: boolean } | null;
+  tiene_logo: boolean;
   listo_para_produccion: boolean;
   faltantes_para_produccion: string[];
 }
@@ -28,18 +29,21 @@ export async function estadoEmpresaPropia(ruc: string, token: string): Promise<E
 export interface GuardarEmpresaParams {
   token: string;
   ruc: string;
-  razonSocial: string;
+  /** Obligatorios solo en el alta; en actualizaciones parciales (p. ej. solo el logo) pueden omitirse. */
+  razonSocial?: string;
   nombreComercial?: string | null;
-  direccion: string;
-  ubigeo: string;
-  departamento: string;
-  provincia: string;
-  distrito: string;
+  direccion?: string;
+  ubigeo?: string;
+  departamento?: string;
+  provincia?: string;
+  distrito?: string;
   ambiente?: "beta" | "produccion";
   solUsuario?: string;
   solClave?: string;
   certificadoBase64?: string;
   certificadoClave?: string;
+  /** PNG/JPG en base64 (máx. 300 KB). null borra el logo en la API; undefined lo deja igual. */
+  logoBase64?: string | null;
 }
 
 /** Registra o actualiza la empresa. Lo que no se manda no cambia en la API. */
@@ -47,13 +51,14 @@ export async function guardarEmpresaPropia(p: GuardarEmpresaParams): Promise<{ o
   const { url, key } = config(p.token);
   const cuerpo: Record<string, unknown> = {
     ruc: p.ruc,
-    razon_social: p.razonSocial,
-    direccion: p.direccion,
-    ubigeo: p.ubigeo,
-    departamento: p.departamento,
-    provincia: p.provincia,
-    distrito: p.distrito,
   };
+  if (p.razonSocial !== undefined) cuerpo.razon_social = p.razonSocial;
+  if (p.direccion !== undefined) cuerpo.direccion = p.direccion;
+  if (p.ubigeo !== undefined) cuerpo.ubigeo = p.ubigeo;
+  if (p.departamento !== undefined) cuerpo.departamento = p.departamento;
+  if (p.provincia !== undefined) cuerpo.provincia = p.provincia;
+  if (p.distrito !== undefined) cuerpo.distrito = p.distrito;
+  if (p.logoBase64 !== undefined) cuerpo.logo = p.logoBase64;
   if (p.nombreComercial) cuerpo.nombre_comercial = p.nombreComercial;
   if (p.ambiente) cuerpo.ambiente = p.ambiente;
   if (p.solUsuario) cuerpo.sol_usuario = p.solUsuario;
@@ -70,4 +75,15 @@ export async function guardarEmpresaPropia(p: GuardarEmpresaParams): Promise<{ o
   });
   const body = (await res.json().catch(() => null)) as { message?: string } | null;
   return { ok: res.ok, mensaje: body?.message ?? `La API propia respondió ${res.status}` };
+}
+
+/**
+ * Envía solo el logo (base64) de una empresa ya registrada en la API.
+ * Si la empresa no existe, la API no puede crearla sin razón social ni dirección: se devuelve un mensaje claro.
+ */
+export async function enviarLogoPropia(token: string, ruc: string, logoBase64: string | null): Promise<{ ok: boolean; mensaje: string }> {
+  const r = await guardarEmpresaPropia({ token, ruc, logoBase64 });
+  if (!r.ok && /razon_social|direccion|404|no existe|not found/i.test(r.mensaje))
+    return { ok: false, mensaje: "La empresa aún no está registrada en la API propia; guarda primero su configuración en el proveedor." };
+  return r;
 }

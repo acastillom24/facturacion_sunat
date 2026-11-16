@@ -176,8 +176,14 @@ internamente para el PDF A4), así que hay que indicarlo aparte. Dos formas:
   si buscas costo cero usa la opción anterior.
 
 Desde el panel `/admin` también se puede subir o cambiar el logo de una empresa
-(PNG/JPG, máx. 500 KB): se guarda en Cloudinary, carpeta `facturacion_sunat`, y
+(PNG/JPG, máx. 300 KB): se guarda en Cloudinary, carpeta `facturacion_sunat`, y
 la URL queda en `companies.logo_url`.
+
+**API propia**: además, el logo se envía a la API (campo `logo` de
+`POST /v1/sunat/companies`) para que aparezca en `pdf.ticket` y `pdf.a4`. La
+ficha `/admin/[slug]` muestra "Logo en la API: sí/no" con un botón para
+reenviarlo. Para empresas ya existentes, `npm run sync-logos` envía a la API el
+`logo_url` de todas las empresas con proveedor propio.
 
 Vuelve a ejecutar el mismo comando (con nuevo `--password`) para cambiar la
 contraseña de una empresa existente — usa `upsert` por `slug`.

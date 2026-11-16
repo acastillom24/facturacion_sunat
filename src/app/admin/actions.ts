@@ -12,8 +12,9 @@ import { estaBloqueado, limpiarFallos, registrarFallo } from "@/lib/auth/limite"
 import { getCompanyBySlug } from "@/lib/db/companies";
 import { tokenApisperu } from "@/lib/sunat/apiPropia";
 import { query, queryOne } from "@/lib/db/client";
+import { MAX_LOGO_BYTES, MAX_LOGO_TEXTO } from "@/lib/logo";
 import { v2 as cloudinary } from "cloudinary";
-import { estadoEmpresaPropia, guardarEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
+import { enviarLogoPropia, estadoEmpresaPropia, guardarEmpresaPropia } from "@/lib/sunat/apiPropiaEmpresa";
 
 export async function adminLoginAction(_prev: { error?: string }, formData: FormData): Promise<{ error?: string }> {
   const hash = process.env.ADMIN_PASSWORD_HASH;
@@ -152,10 +153,12 @@ export async function crearEmpresaAction(_prev: CrearEmpresaState, fd: FormData)
 
   const logo = fd.get("logo");
   let logoUrl: string | null = null;
+  let logoBase64: string | undefined;
   if (logo instanceof File && logo.size > 0) {
     const r = await subirLogo(slug, logo);
     if (!r.url) return { error: r.error, campo: "logo" };
     logoUrl = r.url;
+    logoBase64 = r.buffer?.toString("base64");
   }
 
   let creadaId: string;
@@ -210,6 +213,7 @@ export async function crearEmpresaAction(_prev: CrearEmpresaState, fd: FormData)
       solClave: String(fd.get("solClave") ?? "") || undefined,
       certificadoBase64,
       certificadoClave: String(fd.get("certificadoClave") ?? "") || undefined,
+      logoBase64,
     });
     if (!r.ok) return { error: `Empresa creada, pero no se pudo registrar en la API propia: ${r.mensaje}. Complétalo desde su ficha (/admin/${slug}).` };
   }
@@ -243,14 +247,13 @@ export async function toggleActivaAction(slug: string, activa: boolean): Promise
 // Logo y correlativos
 // ---------------------------------------------------------------------------
 
-const MAX_LOGO_BYTES = 500_000;
 const CARPETA_LOGOS = "facturacion_sunat";
 
 /** Sube el logo a Cloudinary (carpeta facturacion_sunat) y devuelve su URL pública https. */
-async function subirLogo(slug: string, archivo: File): Promise<{ url?: string; error?: string }> {
+async function subirLogo(slug: string, archivo: File): Promise<{ url?: string; buffer?: Buffer; error?: string }> {
   const tipos: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg" };
   if (!tipos[archivo.type]) return { error: "El logo debe ser PNG o JPG" };
-  if (archivo.size > MAX_LOGO_BYTES) return { error: "El logo es demasiado grande (máx. 500 KB)" };
+  if (archivo.size > MAX_LOGO_BYTES) return { error: `El logo es demasiado grande (máx. ${MAX_LOGO_TEXTO})` };
   // Con CLOUDINARY_URL el SDK se configura solo; si no, se usan las tres variables sueltas.
   if (!process.env.CLOUDINARY_URL) {
     cloudinary.config({
@@ -269,13 +272,13 @@ async function subirLogo(slug: string, archivo: File): Promise<{ url?: string; e
         )
         .end(buffer);
     });
-    return { url: r.secure_url };
+    return { url: r.secure_url, buffer };
   } catch (e) {
     return { error: `No se pudo subir el logo: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
-export async function guardarLogoAction(slug: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
+export async function guardarLogoAction(slug: string, fd: FormData): Promise<{ ok?: boolean; error?: string; aviso?: string }> {
   if (!(await esAdmin())) return { error: "Sesión admin vencida" };
   const archivo = fd.get("logo");
   if (!(archivo instanceof File) || archivo.size === 0) return { error: "Selecciona un archivo" };
@@ -288,6 +291,42 @@ export async function guardarLogoAction(slug: string, fd: FormData): Promise<{ o
   }
   await registrarAuditoria("cambiar_logo", slug);
   revalidatePath(`/admin/${slug}`);
+  const aviso = await sincronizarLogo(slug, r.buffer?.toString("base64") ?? null);
+  return aviso ? { ok: true, aviso } : { ok: true };
+}
+
+/** Envía el logo a la API propia si la empresa la usa. Devuelve un aviso de error, o null si todo bien / no aplica. */
+async function sincronizarLogo(slug: string, logoBase64: string | null): Promise<string | null> {
+  if (!logoBase64) return null;
+  const company = await getCompanyBySlug(slug);
+  if (!company || company.sunat_provider !== "propia") return null;
+  try {
+    const r = await enviarLogoPropia(tokenApisperu(company), company.ruc, logoBase64);
+    return r.ok ? null : `Logo guardado, pero no se pudo enviar a la API: ${r.mensaje}`;
+  } catch (e) {
+    return `Logo guardado, pero no se pudo enviar a la API: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+/** Reenvía a la API el logo ya guardado (logo_url). */
+export async function reenviarLogoAction(slug: string): Promise<{ ok?: boolean; error?: string }> {
+  if (!(await esAdmin())) return { error: "Sesión admin vencida" };
+  const company = await getCompanyBySlug(slug);
+  if (!company) return { error: "Empresa no encontrada" };
+  if (company.sunat_provider !== "propia") return { error: "La empresa no usa la API propia" };
+  if (!company.logo_url) return { error: "La empresa no tiene logo cargado" };
+  try {
+    const res = await fetch(company.logo_url, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return { error: `No se pudo descargar el logo (${res.status})` };
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_LOGO_BYTES) return { error: "El logo guardado supera 300 KB; sube uno más liviano" };
+    const r = await enviarLogoPropia(tokenApisperu(company), company.ruc, buf.toString("base64"));
+    if (!r.ok) return { error: r.mensaje };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  revalidatePath(`/admin/${slug}`);
+  revalidatePath("/admin");
   return { ok: true };
 }
 

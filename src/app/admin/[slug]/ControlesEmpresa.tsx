@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Boton, Card, Field, Mensaje, inputClass } from "@/components/admin/ui";
 import { resetPasswordAction, toggleActivaAction } from "../actions";
 
 export function ControlesEmpresa({ slug, activa }: { slug: string; activa: boolean }) {
@@ -9,25 +10,38 @@ export function ControlesEmpresa({ slug, activa }: { slug: string; activa: boole
     {},
   );
   return (
-    <div className="space-y-4">
-      <form action={formAction} className="flex flex-wrap items-center gap-2">
-        <input
-          name="password"
-          type="password"
-          autoComplete="new-password"
-          placeholder="Nueva contraseña (mín. 8)"
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
-        />
-        <button disabled={pending} className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100 disabled:opacity-50">
-          Cambiar contraseña
-        </button>
-        {state?.error && <span className="text-sm text-red-600">{state.error}</span>}
-        {state?.ok && <span className="text-sm text-emerald-700">Contraseña actualizada.</span>}
+    <div className="space-y-6">
+      <form action={formAction}>
+        <Card
+          titulo="Contraseña de la empresa"
+          descripcion="Restablece el acceso al panel de la empresa."
+          acciones={
+            <Boton pendiente={pending} variante="secundario">
+              Cambiar contraseña
+            </Boton>
+          }
+        >
+          <Field label="Nueva contraseña" ayuda="Mínimo 8 caracteres.">
+            <input name="password" type="password" autoComplete="new-password" className={inputClass(!!state?.error)} />
+          </Field>
+          {state?.error && <Mensaje tono="error">{state.error}</Mensaje>}
+          {state?.ok && <Mensaje tono="ok">Contraseña actualizada.</Mensaje>}
+        </Card>
       </form>
+
       <form action={() => toggleActivaAction(slug, !activa)}>
-        <button className={`rounded-md px-3 py-2 text-sm ${activa ? "border border-red-300 text-red-700 hover:bg-red-50" : "bg-emerald-600 text-white"}`}>
-          {activa ? "Suspender empresa" : "Reactivar empresa"}
-        </button>
+        <Card
+          peligro={activa}
+          titulo={activa ? "Suspender empresa" : "Reactivar empresa"}
+          descripcion={activa ? "La empresa no podrá iniciar sesión ni emitir comprobantes mientras esté suspendida." : "La empresa vuelve a tener acceso."}
+          acciones={
+            <Boton variante={activa ? "peligro" : "primario"}>{activa ? "Suspender empresa" : "Reactivar empresa"}</Boton>
+          }
+        >
+          <p className="text-sm text-neutral-600">
+            Estado actual: <b className={activa ? "text-emerald-700" : "text-red-600"}>{activa ? "activa" : "suspendida"}</b>
+          </p>
+        </Card>
       </form>
     </div>
   );
